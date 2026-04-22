@@ -368,10 +368,17 @@ async function startServer() {
         if (blockChanges[key] !== undefined) return blockChanges[key];
         
         const distSq = x * x + z * z;
-        if (distSq <= 7225) { // 85 radius squared
-          if (y === -60) return 1; // Bedrock
-          if (y >= -60 && y < 0) return 1; // Stone/Dirt
-          if (y === 0) return 115; // Polished Andesite
+        const dist = Math.sqrt(distSq);
+        
+        if (distSq <= 7225 && y >= -60 && y <= 0) { // Max radius 85, within world height bounds
+          const radiusAtY = Math.sqrt(y + 60) * 11;
+          const noise = (Math.sin(x * 0.1) + Math.cos(z * 0.1)) * 4;
+          
+          if (dist < radiusAtY + noise) {
+             if (y === -60) return 1; // Bedrock
+             if (y >= -60 && y < 0) return 1; // Stone/Dirt
+             if (y === 0) return 115; // Polished Andesite
+          }
         }
         return BLOCK.AIR;
       }
@@ -387,8 +394,8 @@ async function startServer() {
       const isBridge = isVoid && x >= -8 && x <= 8;
   
       if (isBridge) {
-        // Bridge is at world Y=0 to 4 (60 to 64 in absolute height)
-        if (y >= 0 && y <= 4) return 1;
+        // Bridge is at world Y=0, fences at Y=1. Server just needs to support walking.
+        if (y === 0 || (y === 1 && (x === -8 || x === 8))) return 1;
         return BLOCK.AIR;
       }
   
@@ -448,7 +455,7 @@ async function startServer() {
       }
       
       // Above ground
-      if (y < 2) { // Water level is 62, which is 2 in absolute coordinates (62 - 60)
+      if (y <= 2) { // Water level is 62, which is 2 in absolute coordinates (62 - 60)
         const tempNoise = noise2D(x * 0.002, z * 0.002);
         const moistNoise = noise2D(x * 0.002 + 1000, z * 0.002 + 1000);
         if (tempNoise >= 0.6 && moistNoise < -0.4) {
