@@ -2,7 +2,6 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
@@ -165,7 +164,7 @@ async function startServer() {
   app.use(limiter);
   // -----------------------------
 
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: { 
@@ -1418,23 +1417,12 @@ async function startServer() {
   createGameServer('/hub', 'hub_world_data.json', true);
   createGameServer('/skybridge', 'world_data.json', false);
   createGameServer('/skycastles', 'skycastles_world_data.json', false);
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+  app.get('/', (req, res) => {
+    res.send('SkyBridge API Server is running');
+  });
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
