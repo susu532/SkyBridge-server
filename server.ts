@@ -1,4 +1,7 @@
 import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -130,10 +133,45 @@ function isNature(wx_raw: number, wz_raw: number) {
 
 async function startServer() {
   const app = express();
+
+  // --- SECURITY MIDDLEWARES ---
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+  }));
+
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'https://sky-bridge-teal-two.vercel.app'
+  ];
+
+  app.use(cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  }));
+
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    message: 'Too many requests from this IP, please try again later.'
+  });
+  app.use(limiter);
+  // -----------------------------
+
   const PORT = 3000;
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
-    cors: { origin: '*' }
+    cors: { 
+      origin: allowedOrigins,
+      methods: ["GET", "POST"]
+    }
   });
 
   // BAKED_BLOCKS_START
