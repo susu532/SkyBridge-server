@@ -1,0 +1,23 @@
+{
+  "441": { "baseDamage": 10, "strength": 5 },
+  "442": { "baseDamage": 17, "strength": 7 },
+  "443": { "baseDamage": 30, "strength": 12 },
+  "444": { "baseDamage": 22, "strength": 10 },
+  "445": { "baseDamage": 50, "strength": 25 },
+  "54":  { "baseDamage": 100, "strength": 100 },
+  "436": { "baseDamage": 5, "strength": 2 },
+  "437": { "baseDamage": 10, "strength": 5 },
+  "438": { "baseDamage": 15, "strength": 10 },
+  "439": { "baseDamage": 12, "strength": 8 },
+  "440": { "baseDamage": 25, "strength": 20 },
+  "451": { "baseDamage": 4, "strength": 0 },
+  "452": { "baseDamage": 6, "strength": 0 },
+  "453": { "baseDamage": 8, "strength": 0 },
+  "454": { "baseDamage": 5, "strength": 0 },
+  "455": { "baseDamage": 12, "strength": 0 },
+  "446": { "baseDamage": 2, "strength": 0 },
+  "447": { "baseDamage": 3, "strength": 0 },
+  "448": { "baseDamage": 4, "strength": 0 },
+  "449": { "baseDamage": 2, "strength": 0 },
+  "450": { "baseDamage": 5, "strength": 0 }
+}
