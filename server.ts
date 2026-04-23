@@ -24,21 +24,29 @@ const prng = createPRNG('skyBridge-seed-v1');
 const noise2D = createNoise2D(prng);
 const noise3D = createNoise3D(prng);
 
-function getTerrainHeight(wx_raw: number, wz_raw: number) {
+function getTerrainHeight(wx_raw: number, wz_raw: number, isSkyCastles: boolean = false) {
   const wx = Math.floor(wx_raw);
   const wz = Math.floor(wz_raw);
   
-  // Blue Castle & Village (Z: 70 to 180, X: -50 to 50)
+  const shelterEnd = isSkyCastles ? 300 : 180;
+  
+  // Blue Castle & Village (Z: 70 to shelterEnd, X: -50 to 50)
   const dxBlue = Math.max(0, Math.abs(wx) - 50);
-  const dzBlue = Math.max(0, 70 - wz, wz - 180);
+  const dzBlue = Math.max(0, 70 - wz, wz - shelterEnd);
   const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
 
-  // Red Castle & Village (Z: -180 to -70, X: -50 to 50)
+  // Red Castle & Village (Z: -shelterEnd to -70, X: -50 to 50)
   const dxRed = Math.max(0, Math.abs(wx) - 50);
-  const dzRed = Math.max(0, -180 - wz, wz - -70);
+  const dzRed = Math.max(0, -shelterEnd - wz, wz - -70);
   const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
 
   const distToProtected = Math.min(distBlue, distRed);
+  
+  if (isSkyCastles) {
+    if (distToProtected > 15) return -100 - 60; // Void
+    return 64 - 60; // Flat base height (Surface at Y=4)
+  }
+
   const baseHeight = 64;
   
   // Biome selection noise
@@ -72,8 +80,7 @@ function getTerrainHeight(wx_raw: number, wz_raw: number) {
   }
   
   const elevationNoise = noise2D(wx * 0.001, wz * 0.001);
-  if (elevationNoise < -0.5) { biomeScale = 0.01; biomeHeight = -15; } // OCEAN
-  else if (elevationNoise > 0.6) { biomeScale = 0.005; biomeHeight = 60; } // MOUNTAINS
+  if (elevationNoise > 0.6) { biomeScale = 0.005; biomeHeight = 60; } // MOUNTAINS
 
   const n1 = noise2D(wx * biomeScale, wz * biomeScale);
   const n2 = noise2D(wx * biomeScale * 4, wz * biomeScale * 4) * 0.5;
@@ -84,7 +91,7 @@ function getTerrainHeight(wx_raw: number, wz_raw: number) {
   const distFromCenter = Math.sqrt(wx * wx + wz * wz);
   if (distFromCenter > 800 - 100) {
     const edgeFactor = Math.min(1, (distFromCenter - (800 - 100)) / 100);
-    mountainHeight = mountainHeight * (1 - edgeFactor) - 30 * edgeFactor;
+    mountainHeight = mountainHeight * (1 - edgeFactor) - 100 * edgeFactor;
   }
 
   const targetHeight = baseHeight + mountainHeight;
@@ -96,7 +103,7 @@ function getTerrainHeight(wx_raw: number, wz_raw: number) {
   return finalHeight - 60; // Convert to world Y (WORLD_Y_OFFSET is -60)
 }
 
-function isNature(wx_raw: number, wz_raw: number) {
+function isNature(wx_raw: number, wz_raw: number, isSkyCastles: boolean = false) {
   const wx = Math.floor(wx_raw);
   const wz = Math.floor(wz_raw);
   
@@ -105,18 +112,25 @@ function isNature(wx_raw: number, wz_raw: number) {
   const isRedSide = wz <= -70;
   if (!isBlueSide && !isRedSide) return false;
 
+  const shelterEnd = isSkyCastles ? 300 : 180;
+
   // Blue Castle & Village (Z: 70 to 180, X: -50 to 50)
   const dxBlue = Math.max(0, Math.abs(wx) - 50);
-  const dzBlue = Math.max(0, 70 - wz, wz - 180);
+  const dzBlue = Math.max(0, 70 - wz, wz - shelterEnd);
   const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
 
   // Red Castle & Village (Z: -180 to -70, X: -50 to 50)
   const dxRed = Math.max(0, Math.abs(wx) - 50);
-  const dzRed = Math.max(0, -180 - wz, wz - -70);
+  const dzRed = Math.max(0, -shelterEnd - wz, wz - -70);
   const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
 
   const distToProtected = Math.min(distBlue, distRed);
   
+  if (isSkyCastles) {
+    // Only "nature" (mob spawn zone) is the small island itself, outside protected boundaries
+    return distToProtected > 0 && distToProtected <= 15;
+  }
+
   // Don't spawn in protected areas or too close to them
   if (distToProtected <= 10) return false;
 
@@ -144,6 +158,7 @@ async function startServer() {
   // BAKED_BLOCKS_END
 
   function createGameServer(namespacePrefix: string, worldDataFileName: string, isHubMode: boolean) {
+    const isSkyCastlesMode = namespacePrefix === '/skycastles' || namespacePrefix === '/voidtrail';
     const ioNamespace = io.of(namespacePrefix);
     const WORLD_DATA_FILE = path.join(process.cwd(), worldDataFileName);
     let blockChanges: Record<string, number> = {}; 
@@ -307,8 +322,9 @@ async function startServer() {
       }
   
       // Village boundaries (protected area)
-      const isBlueVillageZ = z >= 131 && z <= 180;
-      const isRedVillageZ = z >= -180 && z <= -131;
+      const villageEnd = isSkyCastlesMode ? 300 : 180;
+      const isBlueVillageZ = z >= 131 && z <= villageEnd;
+      const isRedVillageZ = z >= -villageEnd && z <= -131;
       const isVillageX = x >= -50 && x <= 50;
       if (isVillageX && (isBlueVillageZ || isRedVillageZ) && y >= 4) {
         return true;
@@ -367,18 +383,20 @@ async function startServer() {
   
       if (isVoid) return BLOCK.AIR;
   
-      const groundY = getTerrainHeight(x, z);
+      const groundY = getTerrainHeight(x, z, isSkyCastlesMode);
       // A block at groundY occupies [groundY, groundY + 1)
       if (y >= groundY && y < groundY + 1) return 1; 
       
       if (y < groundY) {
+        if (isSkyCastlesMode && y < -30) return BLOCK.AIR; // Floating bottom
         // Check for caves
         const dxBlue = Math.max(0, Math.abs(x) - 50);
-        const dzBlue = Math.max(0, 70 - z, z - 180);
+        const villageEnd = isSkyCastlesMode ? 300 : 180;
+        const dzBlue = Math.max(0, 70 - z, z - villageEnd);
         const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
   
         const dxRed = Math.max(0, Math.abs(x) - 50);
-        const dzRed = Math.max(0, -180 - z, z - -70);
+        const dzRed = Math.max(0, -villageEnd - z, z - -70);
         const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
   
         const distToProtected = Math.min(distBlue, distRed);
@@ -391,7 +409,7 @@ async function startServer() {
         const elevationNoise = noise2D(x * 0.001, z * 0.001);
         const isOcean = elevationNoise < -0.5;
   
-        const hasCaves = !isProtected && !isOcean && noise2D(x * 0.01, z * 0.01) > 0.3;
+        const hasCaves = !isSkyCastlesMode && !isProtected && !isOcean && noise2D(x * 0.01, z * 0.01) > 0.3;
         
         const cy = y + 60;
         const cTerrainHeight = groundY + 60;
@@ -420,29 +438,24 @@ async function startServer() {
         return 1; // Below ground is solid
       }
       
-      // Above ground
-      if (y <= 2) { // Water level is 62, which is 2 in absolute coordinates (62 - 60)
-        const tempNoise = noise2D(x * 0.002, z * 0.002);
-        const moistNoise = noise2D(x * 0.002 + 1000, z * 0.002 + 1000);
-        if (tempNoise >= 0.6 && moistNoise < -0.4) {
-          return BLOCK.LAVA;
-        }
-        return BLOCK.WATER;
-      }
-      
+      // Above ground - No ocean/lakes
       return BLOCK.AIR;
     }
   
     function spawnMob(type: string, x: number, y: number, z: number, level?: number) {
       const id = 'mob_' + Math.random().toString(36).substring(2, 9);
       
-      const isHostile = ['Zombie', 'Creeper', 'Skeleton', 'Slime'].includes(type);
+      const isHostile = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'].includes(type);
       
       let mobLvl = 1;
       let hp = 100;
       let scale = 1;
       
-      if (isHostile) {
+      if (type === 'Morvane') {
+        hp = 25000;
+        scale = 5;
+        mobLvl = 100;
+      } else if (isHostile) {
         if (level !== undefined && level >= 1) {
            mobLvl = level;
         } else {
@@ -591,7 +604,7 @@ async function startServer() {
             if (mob && knockbackDir) {
                 mob.health -= damage;
                 
-                const hostileMobTypes = ['Zombie', 'Creeper', 'Skeleton', 'Slime'];
+                const hostileMobTypes = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'];
                 if (!hostileMobTypes.includes(mob.type)) {
                   mob.fleeTimer = 5.0;
                 }
@@ -790,8 +803,8 @@ async function startServer() {
         if (!data || !data.type || !data.position) return;
         const { type, position, level } = data;
         
-        // Limit total mobs
-        if (Object.keys(mobs).length > 100) return;
+        // Limit total mobs (except for Bosses like Morvane)
+        if (Object.keys(mobs).length > 100 && type !== 'Morvane') return;
   
         // Prevent duplicate mobs at the exact same location (from multiple clients generating the same chunk)
         for (const id in mobs) {
@@ -892,7 +905,7 @@ async function startServer() {
         let wishDirX = 0;
         let wishDirZ = 0;
   
-        const hostileMobTypes = ['Zombie', 'Creeper', 'Skeleton', 'Slime'];
+        const hostileMobTypes = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'];
         const isHostile = hostileMobTypes.includes(mob.type);
   
         if (mob.knockbackTimer > 0) {
@@ -1077,6 +1090,12 @@ async function startServer() {
           return true;
         };
   
+        if (mob.type === 'Morvane') {
+          wishDirX = 0;
+          wishDirZ = 0;
+          mob.velocity.y = 0;
+        }
+
         // Apply push directly to position
         if (pushX !== 0 || pushZ !== 0) {
            const nextPushX = mob.position.x + pushX;
@@ -1205,7 +1224,7 @@ async function startServer() {
         const x = randomPlayer.position.x + Math.cos(angle) * dist;
         const z = randomPlayer.position.z + Math.sin(angle) * dist;
         
-        if (isNature(x, z)) {
+        if (isNature(x, z, isSkyCastlesMode)) {
           let spawnY = -1;
           // Try to find a valid ground near the player's Y level
           // We search for multiple layers (surface and caves) and pick one
@@ -1348,7 +1367,7 @@ async function startServer() {
           if (dist < minPlayerDist) minPlayerDist = dist;
         }
   
-        const isHostile = ['Zombie', 'Creeper', 'Skeleton', 'Slime'].includes(mob.type);
+        const isHostile = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'].includes(mob.type);
 
         let isExposed = true;
         if (isHostile && isDay) {
@@ -1362,7 +1381,7 @@ async function startServer() {
         }
 
         // Despawn if too far from all players, or if hostile during day and exposed
-        if (minPlayerDist > 120 || (isDay && isHostile && isExposed && minPlayerDist > 15)) {
+        if (mob.type !== 'Morvane' && (minPlayerDist > 120 || (isDay && isHostile && isExposed && minPlayerDist > 15))) {
           delete mobs[id];
           ioNamespace.emit('mobDespawned', id);
         }
