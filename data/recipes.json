@@ -1,0 +1,597 @@
+[
+  {
+    "input": [
+      "WOOD",
+      null,
+      null,
+      null
+    ],
+    "output": {
+      "type": "PLANKS",
+      "count": 4
+    },
+    "is3x3": false
+  },
+  {
+    "input": [
+      "PLANKS",
+      null,
+      "PLANKS",
+      null
+    ],
+    "output": {
+      "type": "STICK",
+      "count": 4
+    },
+    "is3x3": false
+  },
+  {
+    "input": [
+      "STICK",
+      "COAL"
+    ],
+    "output": {
+      "type": "TORCH",
+      "count": 4
+    },
+    "is3x3": false,
+    "shapeless": true
+  },
+  {
+    "input": [
+      "DIRT",
+      "SAND"
+    ],
+    "output": {
+      "type": "GRASS",
+      "count": 2
+    },
+    "is3x3": false,
+    "shapeless": true
+  },
+  {
+    "input": [
+      "PLANKS",
+      "PLANKS",
+      "PLANKS",
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "WOODEN_PICKAXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "COMMON",
+        "durability": 59,
+        "maxDurability": 59,
+        "stats": {
+          "miningSpeed": 10,
+          "damage": 5,
+          "strength": 2
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "COBBLESTONE",
+      "COBBLESTONE",
+      "COBBLESTONE",
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "STONE_PICKAXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 131,
+        "maxDurability": 131,
+        "stats": {
+          "miningSpeed": 20,
+          "damage": 10,
+          "strength": 5
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "IRON_INGOT",
+      "IRON_INGOT",
+      "IRON_INGOT",
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "IRON_PICKAXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "RARE",
+        "durability": 250,
+        "maxDurability": 250,
+        "stats": {
+          "miningSpeed": 30,
+          "damage": 15,
+          "strength": 10
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "GOLD_INGOT",
+      "GOLD_INGOT",
+      "GOLD_INGOT",
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "GOLDEN_PICKAXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 32,
+        "maxDurability": 32,
+        "stats": {
+          "miningSpeed": 40,
+          "damage": 12,
+          "strength": 8
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "DIAMOND",
+      "DIAMOND",
+      "DIAMOND",
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "DIAMOND_PICKAXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "EPIC",
+        "durability": 1561,
+        "maxDurability": 1561,
+        "stats": {
+          "miningSpeed": 50,
+          "damage": 25,
+          "strength": 20
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "PLANKS",
+      null,
+      null,
+      "PLANKS",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "WOODEN_SWORD",
+      "count": 1,
+      "metadata": {
+        "rarity": "COMMON",
+        "durability": 59,
+        "maxDurability": 59,
+        "stats": {
+          "damage": 10,
+          "strength": 5
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "COBBLESTONE",
+      null,
+      null,
+      "COBBLESTONE",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "STONE_SWORD",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 131,
+        "maxDurability": 131,
+        "stats": {
+          "damage": 17,
+          "strength": 7
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "IRON_INGOT",
+      null,
+      null,
+      "IRON_INGOT",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "IRON_SWORD",
+      "count": 1,
+      "metadata": {
+        "rarity": "RARE",
+        "durability": 250,
+        "maxDurability": 250,
+        "stats": {
+          "damage": 30,
+          "strength": 12
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "GOLD_INGOT",
+      null,
+      null,
+      "GOLD_INGOT",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "GOLDEN_SWORD",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 32,
+        "maxDurability": 32,
+        "stats": {
+          "damage": 22,
+          "strength": 10
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "DIAMOND",
+      null,
+      null,
+      "DIAMOND",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "DIAMOND_SWORD",
+      "count": 1,
+      "metadata": {
+        "rarity": "EPIC",
+        "durability": 1561,
+        "maxDurability": 1561,
+        "stats": {
+          "damage": 50,
+          "strength": 25
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "PLANKS",
+      null,
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "WOODEN_SHOVEL",
+      "count": 1,
+      "metadata": {
+        "rarity": "COMMON",
+        "durability": 59,
+        "maxDurability": 59,
+        "stats": {
+          "miningSpeed": 10,
+          "damage": 2
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "COBBLESTONE",
+      null,
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "STONE_SHOVEL",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 131,
+        "maxDurability": 131,
+        "stats": {
+          "miningSpeed": 20,
+          "damage": 3
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "IRON_INGOT",
+      null,
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "IRON_SHOVEL",
+      "count": 1,
+      "metadata": {
+        "rarity": "RARE",
+        "durability": 250,
+        "maxDurability": 250,
+        "stats": {
+          "miningSpeed": 30,
+          "damage": 4
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "GOLD_INGOT",
+      null,
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "GOLDEN_SHOVEL",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 32,
+        "maxDurability": 32,
+        "stats": {
+          "miningSpeed": 40,
+          "damage": 2
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      null,
+      "DIAMOND",
+      null,
+      null,
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "DIAMOND_SHOVEL",
+      "count": 1,
+      "metadata": {
+        "rarity": "EPIC",
+        "durability": 1561,
+        "maxDurability": 1561,
+        "stats": {
+          "miningSpeed": 50,
+          "damage": 5
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "PLANKS",
+      "PLANKS",
+      null,
+      "PLANKS",
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "WOODEN_AXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "COMMON",
+        "durability": 59,
+        "maxDurability": 59,
+        "stats": {
+          "miningSpeed": 10,
+          "damage": 4
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "COBBLESTONE",
+      "COBBLESTONE",
+      null,
+      "COBBLESTONE",
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "STONE_AXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 131,
+        "maxDurability": 131,
+        "stats": {
+          "miningSpeed": 20,
+          "damage": 6
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "IRON_INGOT",
+      "IRON_INGOT",
+      null,
+      "IRON_INGOT",
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "IRON_AXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "RARE",
+        "durability": 250,
+        "maxDurability": 250,
+        "stats": {
+          "miningSpeed": 30,
+          "damage": 8
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "GOLD_INGOT",
+      "GOLD_INGOT",
+      null,
+      "GOLD_INGOT",
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "GOLDEN_AXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "UNCOMMON",
+        "durability": 32,
+        "maxDurability": 32,
+        "stats": {
+          "miningSpeed": 40,
+          "damage": 5
+        }
+      }
+    },
+    "is3x3": true
+  },
+  {
+    "input": [
+      "DIAMOND",
+      "DIAMOND",
+      null,
+      "DIAMOND",
+      "STICK",
+      null,
+      null,
+      "STICK",
+      null
+    ],
+    "output": {
+      "type": "DIAMOND_AXE",
+      "count": 1,
+      "metadata": {
+        "rarity": "EPIC",
+        "durability": 1561,
+        "maxDurability": 1561,
+        "stats": {
+          "miningSpeed": 50,
+          "damage": 12
+        }
+      }
+    },
+    "is3x3": true
+  }
+]

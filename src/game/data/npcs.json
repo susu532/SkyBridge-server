@@ -33,6 +33,19 @@
         { "type": 3, "price": 1, "currency": 501, "outputAmount": 1, "action": "sell" }, 
         { "type": 4, "price": 1, "currency": 501, "outputAmount": 1, "action": "sell" } 
       ]
+    },
+    {
+      "id": "hub_npc_v",
+      "name": "Voidtrail",
+      "position": { "x": 0, "y": 1, "z": 10 },
+      "rotation": 0,
+      "shopItems": [
+        { "type": 456, "price": 1, "currency": 501, "outputAmount": 5, "action": "sell" }, 
+        { "type": 458, "price": 1, "currency": 501, "outputAmount": 10, "action": "sell" }, 
+        { "type": 29, "price": 1, "currency": 501, "outputAmount": 1, "action": "sell" }, 
+        { "type": 3, "price": 1, "currency": 501, "outputAmount": 1, "action": "sell" }, 
+        { "type": 4, "price": 1, "currency": 501, "outputAmount": 1, "action": "sell" } 
+      ]
     }
   ],
   "skybridge": [
@@ -167,5 +180,6 @@
       ]
     }
   ],
-  "skycastles": []
+  "skycastles": [],
+  "voidtrail": []
 }
