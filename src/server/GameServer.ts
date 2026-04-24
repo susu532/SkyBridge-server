@@ -52,6 +52,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
        chunkManager.unloadIdleChunks(players, 6); // 6 chunk render distance
     }, 30000);
 
+    // Sync time every second
+    setInterval(() => {
+       ioNamespace.emit('timeUpdate', { dayTime });
+    }, 1000);
+
   
     const droppedItems: Record<string, any> = {};
     const mobs: Record<string, any> = {};
@@ -691,6 +696,10 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       for (const id in mobs) {
         const mob = mobs[id];
         
+        // Simple AI: Move towards closest player
+        let closestPlayer: any = null;
+        let minPlayerDist = Infinity;
+        
         // Initialize AI state if missing
         if (mob.wanderTimer === undefined) {
           mob.wanderTimer = 0;
@@ -706,8 +715,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         }
   
         let closestDist = Infinity;
-        let closestPlayer = null;
-  
+        
         const mpCX = Math.floor(mob.position.x / PLAYER_CELL_SIZE);
         const mpCY = Math.floor(mob.position.y / PLAYER_CELL_SIZE);
         const mpCZ = Math.floor(mob.position.z / PLAYER_CELL_SIZE);
@@ -733,6 +741,12 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
           }
         }
   
+        // Suspend simulation if no players are within 60 blocks (~2.5 chunks)
+        // Except for bosses like Morvane who might need to keep track of state, but Morvane stays at 0,0 usually.
+        if (closestDist > 60 && mob.type !== 'Morvane') {
+          continue;
+        }
+
         // Movement logic
         let moveSpeed = 2.5;
         let wishDirX = 0;
@@ -1040,7 +1054,6 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       // Update dayTime
       dayTime = (dayTime + delta * dayCycleSpeed) % 1;
-      ioNamespace.emit('timeUpdate', { dayTime });
   
       // Minion production
       for (const id in minions) {

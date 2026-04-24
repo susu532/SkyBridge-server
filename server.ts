@@ -25,6 +25,8 @@ async function startServer() {
   let db: Database.Database;
   try {
     db = new Database('skybridge.db');
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
     db.exec(`
       CREATE TABLE IF NOT EXISTS chunk_data (
         world TEXT,
@@ -42,6 +44,8 @@ async function startServer() {
     console.warn("Database initialization failed (likely malformed), resetting skybridge.db...", err);
     if (fs.existsSync('skybridge.db')) fs.unlinkSync('skybridge.db');
     db = new Database('skybridge.db');
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
     db.exec(`
       CREATE TABLE IF NOT EXISTS chunk_data (
         world TEXT,
