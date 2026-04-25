@@ -52,10 +52,10 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
        chunkManager.unloadIdleChunks(players, 6); // 6 chunk render distance
     }, 30000);
 
-    // Sync time every second
+    // Sync time every 10 seconds to save bandwidth
     setInterval(() => {
        ioNamespace.emit('timeUpdate', { dayTime });
-    }, 1000);
+    }, 10000);
 
   
     const droppedItems: Record<string, any> = {};
@@ -301,9 +301,14 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       // Handle skill updates
       socket.on('skillUpdate', (data) => {
-        if (players[socket.id]) {
-          if (!players[socket.id].skills) players[socket.id].skills = {};
-          players[socket.id].skills[data.skill] = data.progress;
+        const player = players[socket.id];
+        if (player) {
+          const now = Date.now();
+          if (player.lastSkillTime && now - player.lastSkillTime < 250) return; // Max 4 times per sec
+          player.lastSkillTime = now;
+
+          if (!player.skills) player.skills = {};
+          player.skills[data.skill] = data.progress;
           
           // Broadcast to others
           socket.broadcast.emit('skillUpdate', {
@@ -355,6 +360,10 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         const attacker = players[socket.id];
         if (!attacker) return;
         
+        const now = Date.now();
+        if (attacker.lastAttackTime && now - attacker.lastAttackTime < 250) return; // Max 4 attacks per second
+        attacker.lastAttackTime = now;
+        
         // Base combat calculation
         let baseDamage = 5;
         let strength = 0;
@@ -381,6 +390,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         if (isMob) {
             const mob = mobs[targetId];
             if (mob && knockbackDir) {
+                const dx = attacker.position.x - mob.position.x;
+                const dy = attacker.position.y - mob.position.y;
+                const dz = attacker.position.z - mob.position.z;
+                if (dx * dx + dy * dy + dz * dz > 100) return; // Validation
+                
                 mob.health -= damage;
                 
                 const hostileMobTypes = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'];
@@ -402,6 +416,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         } else {
             const target = players[targetId];
             if (target) {
+                const dx = attacker.position.x - target.position.x;
+                const dy = attacker.position.y - target.position.y;
+                const dz = attacker.position.z - target.position.z;
+                if (dx * dx + dy * dy + dz * dz > 100) return; // Validation
+            
                 const targetDefense = target.defense || 0;
                 const reduction = targetDefense / (targetDefense + 100);
                 const actualDamage = Math.floor(damage * (1 - reduction));
@@ -492,6 +511,20 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       socket.on('setBlock', (data) => {
         const { x, y, z, type } = data;
         
+        const player = players[socket.id];
+        if (!player) return;
+        
+        const now = Date.now();
+        if (player.lastBlockTime && now - player.lastBlockTime < 10) return; // Max 100 blocks per second per player
+        player.lastBlockTime = now;
+
+        if (player) {
+          const dx = player.position.x - x;
+          const dy = player.position.y - y;
+          const dz = player.position.z - z;
+          if (dx * dx + dy * dy + dz * dz > 144) return; // Range validation (approx 12 blocks)
+        }
+
         // Prevent modifying indestructible blocks
         if (isIndestructible(x, y, z)) {
           return; // Ignore request to modify indestructible block
@@ -511,16 +544,31 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       // Handle chat message
       socket.on('chatMessage', (message) => {
-        if (players[socket.id]) {
+        const player = players[socket.id];
+        if (player) {
+          const now = Date.now();
+          if (player.lastChatTime && now - player.lastChatTime < 500) return; // Max 2 messages per second
+          player.lastChatTime = now;
+
+          const trimmed = String(message).slice(0, 200); // Max 200 chars
+          if (trimmed.length === 0) return;
+
           ioNamespace.emit('chatMessage', {
-            sender: players[socket.id].name,
-            message: message
+            sender: player.name,
+            message: trimmed
           });
         }
       });
   
       // Handle dropping items
       socket.on('dropItem', (data) => {
+        const player = players[socket.id];
+        if (player) {
+          const now = Date.now();
+          if (player.lastDropTime && now - player.lastDropTime < 100) return;
+          player.lastDropTime = now;
+        }
+
         // Limit total dropped items to 500 to prevent performance issues
         const itemIds = Object.keys(droppedItems);
         if (itemIds.length >= 500) {
@@ -551,6 +599,17 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       // Handle spawning minions
       socket.on('spawnMinion', (data) => {
+        const player = players[socket.id];
+        if (!player) return;
+        
+        let playerMinionCount = 0;
+        for (const mId in minions) {
+          if (minions[mId].ownerId === socket.id) playerMinionCount++;
+        }
+        
+        if (playerMinionCount >= 30) return; // Max 30 minions per player
+        if (Object.keys(minions).length >= 500) return; // Global hard cap for the whole instance
+
         const id = 'minion_' + Math.random().toString(36).substring(2, 9);
         const minion = {
           id,
@@ -595,7 +654,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         const { type, position, level } = data;
         
         // Limit total mobs (except for Bosses like Morvane)
-        if (Object.keys(mobs).length > 100 && type !== 'Morvane') return;
+        if (Object.keys(mobs).length > Math.min(2000, Object.keys(players).length * 40) && type !== 'Morvane') return;
   
         // Prevent duplicate mobs at the exact same location (from multiple clients generating the same chunk)
         for (const id in mobs) {
@@ -616,7 +675,14 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       });
     });
   
-    // Server Tick Loop (50Hz)
+    // Spatial Hash definitions (reused to prevent GC thrashing)
+    const CELL_SIZE = 2;
+    const PLAYER_CELL_SIZE = 25;
+    const getCellKey = (cx: number, cy: number, cz: number) => ((cx & 0x3FF) | ((cy & 0xFF) << 10) | ((cz & 0x3FF) << 18));
+    const spatialHash = new Map<number, any[]>();
+    const playerHash = new Map<number, any[]>();
+
+    // Server Tick Loop (20Hz)
     let lastTickTime = Date.now();
     setInterval(() => {
       const now = Date.now();
@@ -640,20 +706,20 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
             if (p.isBlocking) stateMask |= 64;
 
             updates[id] = [
-              Number(p.position.x.toFixed(2)),
-              Number(p.position.y.toFixed(2)),
-              Number(p.position.z.toFixed(2)),
-              Number(p.rotation.x.toFixed(2)),
-              Number(p.rotation.y.toFixed(2)),
+              Math.round(p.position.x * 100) / 100,
+              Math.round(p.position.y * 100) / 100,
+              Math.round(p.position.z * 100) / 100,
+              Math.round(p.rotation.x * 100) / 100,
+              Math.round(p.rotation.y * 100) / 100,
               stateMask,
               p.swingSpeed,
               p.heldItem || 0,
               p.offHandItem || 0,
-              p.health || 0 // Added Health!
+              Math.round(p.health || 0) // Added Health!
             ];
           }
         }
-        ioNamespace.volatile.emit('playersUpdate', updates);
+        ioNamespace.emit('playersUpdate', updates);
         pendingPlayerUpdates.clear();
       }
 
@@ -669,28 +735,24 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       // Mob updates
       const gravity = -20;
   
-      // Spatial hash for mob push separation
-      const CELL_SIZE = 2;
-      const getCellKey = (x: number, y: number, z: number) => `${Math.floor(x/CELL_SIZE)},${Math.floor(y/CELL_SIZE)},${Math.floor(z/CELL_SIZE)}`;
-      const spatialHash = new Map<string, any[]>();
+      // Clear spatial hashes instead of reallocating
+      for (const cell of spatialHash.values()) cell.length = 0;
+      for (const cell of playerHash.values()) cell.length = 0;
       
       for (const mId in mobs) {
          const m = mobs[mId];
-         const key = getCellKey(m.position.x, m.position.y, m.position.z);
-         if (!spatialHash.has(key)) spatialHash.set(key, []);
-         spatialHash.get(key)!.push(m);
+         const key = getCellKey(Math.floor(m.position.x/CELL_SIZE), Math.floor(m.position.y/CELL_SIZE), Math.floor(m.position.z/CELL_SIZE));
+         let cell = spatialHash.get(key);
+         if (!cell) { cell = []; spatialHash.set(key, cell); }
+         cell.push(m);
       }
-
-      // Spatial hash for player proximity querying
-      const PLAYER_CELL_SIZE = 25;
-      const getPlayerCellKey = (x: number, y: number, z: number) => `${Math.floor(x/PLAYER_CELL_SIZE)},${Math.floor(y/PLAYER_CELL_SIZE)},${Math.floor(z/PLAYER_CELL_SIZE)}`;
-      const playerHash = new Map<string, any[]>();
 
       for (const pId in players) {
         const p = players[pId];
-        const key = getPlayerCellKey(p.position.x, p.position.y, p.position.z);
-        if (!playerHash.has(key)) playerHash.set(key, []);
-        playerHash.get(key)!.push(p);
+        const key = getCellKey(Math.floor(p.position.x/PLAYER_CELL_SIZE), Math.floor(p.position.y/PLAYER_CELL_SIZE), Math.floor(p.position.z/PLAYER_CELL_SIZE));
+        let cell = playerHash.get(key);
+        if (!cell) { cell = []; playerHash.set(key, cell); }
+        cell.push(p);
       }
       
       for (const id in mobs) {
@@ -723,16 +785,16 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         for (let ix = -1; ix <= 1; ix++) {
           for (let iy = -1; iy <= 1; iy++) {
             for (let iz = -1; iz <= 1; iz++) {
-              const key = `${mpCX + ix},${mpCY + iy},${mpCZ + iz}`;
+              const key = getCellKey(mpCX + ix, mpCY + iy, mpCZ + iz);
               const cellPlayers = playerHash.get(key);
               if (cellPlayers) {
                 for (const p of cellPlayers) {
                   const dx = p.position.x - mob.position.x;
                   const dy = p.position.y - mob.position.y;
                   const dz = p.position.z - mob.position.z;
-                  const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                  if (dist < closestDist) {
-                    closestDist = dist;
+                  const distSq = dx*dx + dy*dy + dz*dz;
+                  if (distSq < closestDist * closestDist) {
+                    closestDist = Math.sqrt(distSq);
                     closestPlayer = p;
                   }
                 }
@@ -865,7 +927,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         for (let ix = -1; ix <= 1; ix++) {
           for (let iy = -1; iy <= 1; iy++) {
             for (let iz = -1; iz <= 1; iz++) {
-              const key = `${mpCX + ix},${mpCY + iy},${mpCZ + iz}`;
+              const key = getCellKey(mpCX + ix, mpCY + iy, mpCZ + iz);
               const cellPlayers = playerHash.get(key);
               if (cellPlayers) {
                 for (const p of cellPlayers) {
@@ -892,7 +954,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         for (let ix = -1; ix <= 1; ix++) {
           for (let iy = -1; iy <= 1; iy++) {
              for (let iz = -1; iz <= 1; iz++) {
-               const key = getCellKey(mx + ix*CELL_SIZE, my + iy*CELL_SIZE, mz + iz*CELL_SIZE);
+               const key = getCellKey(Math.floor((mx + ix*CELL_SIZE)/CELL_SIZE), Math.floor((my + iy*CELL_SIZE)/CELL_SIZE), Math.floor((mz + iz*CELL_SIZE)/CELL_SIZE));
                const adjacentMobs = spatialHash.get(key);
                if (adjacentMobs) {
                  for (const m of adjacentMobs) {
@@ -1039,17 +1101,25 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       }
   
       if (Object.keys(mobs).length > 0) {
+        let numPackedMobs = 0;
         const packedMobs: Record<string, any[]> = {};
         for(const id in mobs) {
            const m = mobs[id];
-           packedMobs[id] = [
-             Number(m.position.x.toFixed(2)),
-             Number(m.position.y.toFixed(2)),
-             Number(m.position.z.toFixed(2)),
-             m.health
-           ];
+           if (Math.abs((m.lastX || 0) - m.position.x) > 0.05 || Math.abs((m.lastY || 0) - m.position.y) > 0.05 || Math.abs((m.lastZ || 0) - m.position.z) > 0.05 || m.lastHealth !== m.health) {
+             packedMobs[id] = [
+               Number(m.position.x.toFixed(2)),
+               Number(m.position.y.toFixed(2)),
+               Number(m.position.z.toFixed(2)),
+               Math.floor(m.health)
+             ];
+             m.lastX = m.position.x;
+             m.lastY = m.position.y;
+             m.lastZ = m.position.z;
+             m.lastHealth = m.health;
+             numPackedMobs++;
+           }
         }
-        ioNamespace.volatile.emit('mobsUpdate', packedMobs);
+        if (numPackedMobs > 0) ioNamespace.emit('mobsUpdate', packedMobs);
       }
   
       // Update dayTime
@@ -1066,7 +1136,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
           }
         }
       }
-    }, 20);
+    }, 50);
   
     // Mob Spawning Loop
     let spawnInterval = 1000;
@@ -1080,7 +1150,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       const playerIds = Object.keys(players);
       if (playerIds.length === 0) return;
       
-      const maxMobs = Math.min(150, playerIds.length * 75);
+      const maxMobs = Math.min(2000, playerIds.length * 40);
       if (Object.keys(mobs).length < maxMobs) {
         const randomPlayerId = playerIds[Math.floor(Math.random() * playerIds.length)];
         const randomPlayer = players[randomPlayerId];
@@ -1222,15 +1292,17 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       for (const id in mobs) {
         const mob = mobs[id];
-        let minPlayerDist = Infinity;
+        let minPlayerDistSq = Infinity;
         
         for (const pId of playerIds) {
           const p = players[pId];
           const dx = p.position.x - mob.position.x;
           const dz = p.position.z - mob.position.z;
-          const dist = Math.sqrt(dx*dx + dz*dz);
-          if (dist < minPlayerDist) minPlayerDist = dist;
+          const distSq = dx*dx + dz*dz;
+          if (distSq < minPlayerDistSq) minPlayerDistSq = distSq;
         }
+
+        const minPlayerDist = Math.sqrt(minPlayerDistSq);
   
         const isHostile = ['Zombie', 'Creeper', 'Skeleton', 'Slime', 'Morvane'].includes(mob.type);
 

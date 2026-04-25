@@ -10,6 +10,8 @@ export class ChunkManager {
   chunks: Map<string, Uint16Array> = new Map();
   dirtyChunks: Set<string> = new Set();
   
+  cachedBlockChanges: Record<string, number> | null = null;
+  
   insertChunk: Database.Statement;
   getChunk: Database.Statement;
   getAllChunks: Database.Statement;
@@ -70,6 +72,13 @@ export class ChunkManager {
       const idx = lx | (lz << 4) | (ly << 8);
       arr[idx] = type;
       this.dirtyChunks.add(`${cx},${cz}`);
+      
+      if (this.cachedBlockChanges) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const wy = ly + WORLD_Y_OFFSET;
+        this.cachedBlockChanges[`${wx},${wy},${wz}`] = type;
+      }
     }
   }
 
@@ -160,41 +169,43 @@ export class ChunkManager {
   }
 
   getBlockChangesDict() {
-    const dict: Record<string, number> = {};
-    
-    // First, load from SQLite for the persistent state
-    try {
-      const rows = this.getAllChunks.all(this.worldName) as any[];
-      for (const row of rows) {
-        const chunkBlocks = JSON.parse(row.data);
-        for (const k of Object.keys(chunkBlocks)) {
-          dict[k] = chunkBlocks[k];
+    if (this.cachedBlockChanges === null) {
+      this.cachedBlockChanges = {};
+      
+      // First, load from SQLite for the persistent state
+      try {
+        const rows = this.getAllChunks.all(this.worldName) as any[];
+        for (const row of rows) {
+          const chunkBlocks = JSON.parse(row.data);
+          for (const k of Object.keys(chunkBlocks)) {
+            this.cachedBlockChanges[k] = chunkBlocks[k];
+          }
         }
+      } catch (err) {
+        console.error('Error fetching chunk dict from DB:', err);
       }
-    } catch (err) {
-      console.error('Error fetching chunk dict from DB:', err);
-    }
 
-    // Then, override with any dirty/unsaved chunks currently in memory
-    for (const chunkId of this.dirtyChunks) {
-      const arr = this.chunks.get(chunkId);
-      if (arr) {
-        const [cxStr, czStr] = chunkId.split(',');
-        const cx = parseInt(cxStr, 10);
-        const cz = parseInt(czStr, 10);
-        for (let i = 0; i < arr.length; i++) {
-          if (arr[i] !== 0xFFFF) {
-            const ly = Math.floor(i / 256);
-            const lz = Math.floor((i % 256) / 16);
-            const lx = i % 16;
-            const wx = cx * CHUNK_SIZE + lx;
-            const wz = cz * CHUNK_SIZE + lz;
-            const wy = ly + WORLD_Y_OFFSET;
-            dict[`${wx},${wy},${wz}`] = arr[i];
+      // Then, override with any dirty/unsaved chunks currently in memory
+      for (const chunkId of this.dirtyChunks) {
+        const arr = this.chunks.get(chunkId);
+        if (arr) {
+          const [cxStr, czStr] = chunkId.split(',');
+          const cx = parseInt(cxStr, 10);
+          const cz = parseInt(czStr, 10);
+          for (let i = 0; i < arr.length; i++) {
+            if (arr[i] !== 0xFFFF) {
+              const ly = Math.floor(i / 256);
+              const lz = Math.floor((i % 256) / 16);
+              const lx = i % 16;
+              const wx = cx * CHUNK_SIZE + lx;
+              const wz = cz * CHUNK_SIZE + lz;
+              const wy = ly + WORLD_Y_OFFSET;
+              this.cachedBlockChanges[`${wx},${wy},${wz}`] = arr[i];
+            }
           }
         }
       }
     }
-    return dict;
+    return this.cachedBlockChanges;
   }
 }
