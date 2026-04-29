@@ -162,11 +162,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       }
   
       if (isVoid) return BLOCK.AIR;
-  
+      
       if (isSkyCastlesMode) {
         if (Math.abs(z) >= 320 || Math.abs(x) > 95) return BLOCK.AIR;
       }
-
+  
       const groundY = getTerrainHeight(x, z, isSkyCastlesMode);
       // A block at groundY occupies [groundY, groundY + 1)
       if (y >= groundY && y < groundY + 1) return 1; 
@@ -449,18 +449,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       });
   
       socket.on('requestRespawn', () => {
-        const p = players[socket.id];
-        if (p && p.isDead) {
-          p.health = 100;
-          p.isDead = false;
-          if (isHubMode) {
-            p.position = { x: 0, y: 10, z: 0 };
-          } else {
-            const sideZ = p.position.z >= 0 ? 1 : -1;
-            const shipCenterZ = isSkyCastlesMode ? 340 : 80;
-            p.position = { x: 0, y: 207, z: sideZ * shipCenterZ };
-          }
-          ioNamespace.emit('playerRespawn', { id: socket.id, position: p.position });
+        if (players[socket.id] && players[socket.id].isDead) {
+          players[socket.id].health = 100;
+          players[socket.id].isDead = false;
+          players[socket.id].position = { x: 0, y: 10, z: 0 };
+          ioNamespace.emit('playerRespawn', { id: socket.id, position: players[socket.id].position });
         }
       });
   
@@ -497,7 +490,6 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         players[socket.id].isCrouching = state.isCrouching;
         players[socket.id].isSprinting = state.isSprinting;
         players[socket.id].isSwinging = state.isSwinging;
-        players[socket.id].isGliding = state.isGliding;
         players[socket.id].swingSpeed = state.swingSpeed;
         players[socket.id].isGrounded = state.isGrounded;
         players[socket.id].heldItem = state.heldItem;
@@ -733,7 +725,6 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
               if (p.isSwinging) stateMask |= 16;
               if (p.isGrounded) stateMask |= 32;
               if (p.isBlocking) stateMask |= 64;
-              if (p.isGliding) stateMask |= 128;
 
               updates[id] = [
                 Math.round(p.position.x * 100) / 100,
@@ -1180,49 +1171,19 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
            }
         }
         if (numPackedMobs > 0) {
-           // Spatial hash for packed mobs to avoid O(Players * Mobs)
-           const MOB_CELL = 60;
-           const getMobCell = (cx: number, cy: number, cz: number) => ((cx & 0x7FF) | ((cy & 0xFF) << 11) | ((cz & 0x7FF) << 19));
-           const packedMobGrid = new Map<number, any[]>();
-           
-           for (const id in packedMobs) {
-              const m = mobs[id];
-              if (!m) continue;
-              const cx = Math.floor(m.position.x / MOB_CELL);
-              const cy = Math.floor(m.position.y / MOB_CELL);
-              const cz = Math.floor(m.position.z / MOB_CELL);
-              const key = getMobCell(cx, cy, cz);
-              let arr = packedMobGrid.get(key);
-              if (!arr) { arr = []; packedMobGrid.set(key, arr); }
-              arr.push({ id, data: packedMobs[id], m });
-           }
-
            Object.keys(players).forEach(socketId => {
               const povPlayer = players[socketId];
               if (!povPlayer) return;
               const updates: Record<string, any[]> = {};
               let count = 0;
-              
-              const pX = Math.floor(povPlayer.position.x / MOB_CELL);
-              const pY = Math.floor(povPlayer.position.y / MOB_CELL);
-              const pZ = Math.floor(povPlayer.position.z / MOB_CELL);
-
-              for (let ix = -2; ix <= 2; ix++) {
-                 for (let iy = -2; iy <= 2; iy++) {
-                    for (let iz = -2; iz <= 2; iz++) {
-                       const key = getMobCell(pX + ix, pY + iy, pZ + iz);
-                       const cellMobs = packedMobGrid.get(key);
-                       if (cellMobs) {
-                          for (const cm of cellMobs) {
-                             const dx = povPlayer.position.x - cm.m.position.x;
-                             const dz = povPlayer.position.z - cm.m.position.z;
-                             // Skip if more than 120 blocks away
-                             if (dx*dx + dz*dz <= 14400) {
-                                updates[cm.id] = cm.data;
-                                count++;
-                             }
-                          }
-                       }
+              for (const id in packedMobs) {
+                 const m = mobs[id];
+                 if (m) {
+                    const dx = povPlayer.position.x - m.position.x;
+                    const dz = povPlayer.position.z - m.position.z;
+                    if (dx*dx + dz*dz <= 14400) {
+                       updates[id] = packedMobs[id];
+                       count++;
                     }
                  }
               }

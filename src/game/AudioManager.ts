@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { settingsManager } from './Settings';
+import { SOUND_URLS } from './SoundConfig';
 
 class AudioManager {
   private listener: THREE.AudioListener;
@@ -7,6 +8,10 @@ class AudioManager {
   private audioLoader: THREE.AudioLoader;
   private initialized: boolean = false;
   private ambientSounds: Map<string, THREE.Audio> = new Map();
+
+  // Background Music (BGM) management
+  private currentMusic: HTMLAudioElement | null = null;
+  private musicVolume: number = 0.4;
 
   private positionalPool: THREE.PositionalAudio[] = [];
 
@@ -19,9 +24,11 @@ class AudioManager {
       // Subscribe to settings for global volume
       settingsManager.subscribe((settings) => {
         if (this.listener) this.listener.setMasterVolume(settings.volume);
+        if (this.currentMusic) this.currentMusic.volume = settings.volume * this.musicVolume;
       });
       // Set initial volume
-      if (this.listener) this.listener.setMasterVolume(settingsManager.getSettings().volume);
+      const initialVolume = settingsManager.getSettings().volume;
+      if (this.listener) this.listener.setMasterVolume(initialVolume);
 
       // Initialize pool
       for (let i = 0; i < 20; i++) {
@@ -32,7 +39,7 @@ class AudioManager {
         this.positionalPool.push(pAudio);
       }
 
-      // Unbreakable brute-force unlocking to guarantee audio context resumes across all game states
+      // Unbreakable brute-force unlocking to guarantee audio context resumes
       const unlockAudio = () => {
         this.resume();
       };
@@ -50,7 +57,6 @@ class AudioManager {
     }
     camera.add(this.listener);
     
-    // Check if we need to add to the new scene
     const scene = camera.parent;
     if (scene) {
       this.positionalPool.forEach(p => {
@@ -72,7 +78,6 @@ class AudioManager {
     this.loadSound('splash', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/splash.ogg');
     this.loadSound('swim', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/liquid/swim1.ogg');
     
-    // New sounds
     this.loadSound('click', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/click.ogg');
     this.loadSound('pop', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/pop.ogg');
     this.loadSound('hit', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/damage/hit1.ogg');
@@ -82,10 +87,18 @@ class AudioManager {
     this.loadSound('orb', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/orb.ogg');
     this.loadSound('bow_shoot', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/bow.ogg');
     this.loadSound('bow_hit', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/bowhit1.ogg');
-    this.loadSound('anvil_land', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/anvil_land.ogg');
-    this.loadSound('anvil_use', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/anvil_use.ogg');
     this.loadSound('chest_open', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/chestopen.ogg');
     this.loadSound('chest_close', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/random/chestclosed.ogg');
+    
+    // Ambient sounds from config
+    Object.entries(SOUND_URLS).forEach(([name, url]) => {
+      if (name.startsWith('ambient_')) {
+        this.loadAmbient(name, url);
+      }
+    });
+
+    // Default ambient
+    this.loadAmbient('rain', 'https://raw.githubusercontent.com/susu532/sounds/main/minecraft/sounds/Remastered/ambient/weather/rain1.ogg', 0);
     
     // Mob sounds
     this.loadSound('zombie_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/zombie/say1.ogg');
@@ -98,6 +111,30 @@ class AudioManager {
     this.loadSound('pig_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/pig/say1.ogg');
     this.loadSound('sheep_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/sheep/say1.ogg');
     this.loadSound('creeper_fuse', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/creeper/say1.ogg');
+  }
+
+  public playMusic(key: keyof typeof SOUND_URLS) {
+    const url = SOUND_URLS[key];
+    if (!url) return;
+
+    if (this.currentMusic) {
+      if (this.currentMusic.src === url) return; // Already playing
+      this.currentMusic.pause();
+      this.currentMusic = null;
+    }
+
+    const audio = new Audio(url);
+    audio.loop = true;
+    audio.volume = settingsManager.getSettings().volume * this.musicVolume;
+    audio.play().catch(e => console.warn("Music playback failed, waiting for interaction:", e));
+    this.currentMusic = audio;
+  }
+
+  public stopMusic() {
+    if (this.currentMusic) {
+      this.currentMusic.pause();
+      this.currentMusic = null;
+    }
   }
 
   private loadSound(name: string, url: string) {
@@ -118,7 +155,6 @@ class AudioManager {
       sound.setLoop(true);
       sound.setVolume(volume);
       this.ambientSounds.set(name, sound);
-      // Don't play immediately, wait for user interaction or explicit call
     });
   }
 
@@ -134,6 +170,18 @@ class AudioManager {
     if (sound && sound.isPlaying) {
       sound.stop();
     }
+  }
+
+  public setAmbientVolume(name: string, volume: number) {
+    const sound = this.ambientSounds.get(name);
+    if (sound) {
+      sound.setVolume(volume);
+    }
+  }
+
+  public isAmbientPlaying(name: string): boolean {
+    const sound = this.ambientSounds.get(name);
+    return sound ? sound.isPlaying : false;
   }
 
   public play(name: string, volume: number = 0.5, pitch: number = 1.0) {
@@ -156,10 +204,8 @@ class AudioManager {
     const baseSound = this.sounds.get(name);
     if (!baseSound || !baseSound.buffer) return;
 
-    // Find an available positional audio from the pool
     let pAudio = this.positionalPool.find(p => !p.isPlaying);
     if (!pAudio) {
-      // If pool is full, grab the one that has been playing the longest (or just the first one)
       pAudio = this.positionalPool[0];
       if (pAudio.isPlaying) pAudio.stop();
     }
@@ -184,7 +230,6 @@ class AudioManager {
         this.listener.context.resume().catch(e => console.warn("Audio resume failed:", e));
       }
     } else {
-      // Fallback in case listener isn't perfectly set up yet but context exists globally
       const ctx = THREE.AudioContext.getContext() as any;
       if (ctx && ctx.state === 'suspended') {
         ctx.resume().catch((e: any) => console.warn("Audio resume fallback failed:", e));
@@ -205,3 +250,4 @@ class AudioManager {
 }
 
 export const audioManager = new AudioManager();
+

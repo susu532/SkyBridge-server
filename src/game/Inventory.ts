@@ -669,12 +669,20 @@ export class Inventory {
     const item = this.slots[slotIndex];
     if (!item || !item.metadata || item.metadata.durability === undefined) return false;
     
-    item.metadata.durability -= amount;
-    if (item.metadata.durability <= 0) {
+    const newDurability = item.metadata.durability - amount;
+    if (newDurability <= 0) {
        this.slots[slotIndex] = null;
        useGameStore.getState().incrementInventoryVersion();
        return true; // Item broke
     }
+    
+    this.slots[slotIndex] = {
+      ...item,
+      metadata: {
+        ...item.metadata,
+        durability: newDurability
+      }
+    };
     useGameStore.getState().incrementInventoryVersion();
     return false; // Did not break
   }
@@ -758,7 +766,7 @@ export class Inventory {
         if (metadataMatch) {
           const canAdd = Math.min(remaining, maxStack - slot.count);
           if (canAdd > 0) {
-            slot.count += canAdd;
+            this.slots[i] = { ...slot, count: slot.count + canAdd };
             remaining -= canAdd;
             useGameStore.getState().incrementInventoryVersion();
           }
@@ -804,9 +812,9 @@ export class Inventory {
       const slot = this.slots[i];
       if (slot && slot.type === type) {
         const canRemove = Math.min(toRemove, slot.count);
-        slot.count -= canRemove;
+        const newCount = slot.count - canRemove;
+        this.slots[i] = newCount > 0 ? { ...slot, count: newCount } : null;
         toRemove -= canRemove;
-        if (slot.count <= 0) this.slots[i] = null;
       }
       if (toRemove <= 0) break;
     }
@@ -817,8 +825,8 @@ export class Inventory {
   removeItemFromSlot(index: number, count: number): boolean {
     const slot = this.slots[index];
     if (!slot || slot.count < count) return false;
-    slot.count -= count;
-    if (slot.count <= 0) this.slots[index] = null;
+    const newCount = slot.count - count;
+    this.slots[index] = newCount > 0 ? { ...slot, count: newCount } : null;
     useGameStore.getState().incrementInventoryVersion();
     return true;
   }
