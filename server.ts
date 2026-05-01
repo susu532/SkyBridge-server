@@ -17,7 +17,7 @@ async function startServer() {
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: { 
-      origin: "*",
+      origin: ["https://sky-bridge-teal-two.vercel.app", "https://sky-bridge-teal-two.vercel.app/"],
       methods: ["GET", "POST"]
     }
   });
