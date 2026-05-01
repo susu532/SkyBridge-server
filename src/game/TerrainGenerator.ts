@@ -38,7 +38,7 @@ export const biomes = {
 
 function getDistToProtected(wx: number, wz: number, isSkyCastles: boolean) {
   const shelterStart = isSkyCastles ? 70 : 61;
-  const shelterEnd = isSkyCastles ? 405 : 110;
+  const shelterEnd = isSkyCastles ? 520 : 110;
   let mountainWidth = isSkyCastles ? 95 : 50;
   
   if (isSkyCastles && Math.abs(wz) >= 300) {
@@ -81,9 +81,9 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
     if (absZ >= 70 && absZ <= 405) {
       const absX = Math.abs(wx);
       
-      // Strict terrain removal around the ship area (Z >= 320)
-      if (absZ >= 290) { // Keep some buffer
-        if (absZ >= 320) {
+      // Strict terrain removal around the ship area
+      if (absZ >= 320) { // Keep some buffer
+        if (absZ >= 340) {
            return { height: -100, biome: biomes.PLAINS, isProtected: false, minHeight: 0 };
         }
       }
@@ -175,7 +175,7 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
       const absZ = Math.abs(wz);
       const dx = 95 - absX;
       const dz1 = absZ - 70;
-      const dz2 = 320 - absZ;
+      const dz2 = 340 - absZ;
       const dVal = Math.min(dx, dz1, dz2);
       
       const hullDepth = Math.pow(Math.max(0, dVal + noise2D(wx * 0.1, wz * 0.1) * 2), 0.75) * 4.5;
@@ -249,7 +249,7 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
     const absZ = Math.abs(wz);
     const dx = 95 - absX;
     const dz1 = absZ - 70;
-    const dz2 = 320 - absZ;
+    const dz2 = 340 - absZ;
     const dVal = Math.min(dx, dz1, dz2);
     
     const hullDepth = Math.pow(Math.max(0, dVal + noise2D(wx * 0.1, wz * 0.1) * 2), 0.75) * 4.5;

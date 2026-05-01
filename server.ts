@@ -1,3 +1,6 @@
+import { HubMode } from './src/server/modes/HubMode';
+import { SkyBridgeMode } from './src/server/modes/SkyBridgeMode';
+import { SkyCastlesMode } from './src/server/modes/SkyCastlesMode';
 import { createGameServer } from './src/server/GameServer';
 import express from 'express';
 
@@ -70,10 +73,95 @@ async function startServer() {
 
 
 
-  createGameServer(io, db, '/hub', 'hub_world_data.json', true);
-  createGameServer(io, db, '/skybridge', 'world_data.json', false);
-  createGameServer(io, db, '/skycastles', 'skycastles_world_data.json', false);
-  createGameServer(io, db, '/voidtrail', 'voidtrail_world_data.json', false);
+  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, api: any, emptySince?: number }[]> = {};
+  
+  // Instance Reaper Loop: Destroy instances that have been empty for > 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const baseName in activeInstances) {
+      const instances = activeInstances[baseName];
+      for (let i = instances.length - 1; i >= 0; i--) {
+        const instance = instances[i];
+        if (io.of(instance.id).sockets.size === 0) {
+          if (!instance.emptySince) {
+            instance.emptySince = now;
+          } else if (now - instance.emptySince > 5 * 60 * 1000) {
+            // Keep at least 1 instance of each core mode
+            if (i > 0 || baseName === 'hub_2') {
+              console.log(`Reaping empty instance: ${instance.id}`);
+              if (instance.api && instance.api.destroy) instance.api.destroy();
+              io.of(instance.id).disconnectSockets(true);
+              instances.splice(i, 1);
+            }
+          }
+        } else {
+          instance.emptySince = undefined;
+        }
+      }
+    }
+  }, 60000);
+
+  function getModeFactory(baseName: string) {
+    if (baseName === 'hub') return new HubMode();
+    if (baseName === 'skybridge') return new SkyBridgeMode();
+    if (baseName === 'skycastles') return new SkyCastlesMode('/skycastles');
+    if (baseName === 'voidtrail') return new SkyCastlesMode('/voidtrail');
+    return new HubMode();
+  }
+
+  function getOrProvisionServer(baseName: string) {
+    if (!activeInstances[baseName]) {
+      activeInstances[baseName] = [];
+    }
+
+    const instances = activeInstances[baseName];
+    // Find an instance with space
+    for (const instance of instances) {
+      if (io.of(instance.id).sockets.size < instance.playerLimit) {
+        return instance.id;
+      }
+    }
+
+    if (instances.length >= 20) {
+       // Just put them in the least full instance to prevent instance explosion
+       let minSize = Infinity;
+       let bestInstance = instances[0];
+       for (const instance of instances) {
+         const size = io.of(instance.id).sockets.size;
+         if (size < minSize) {
+           minSize = size;
+           bestInstance = instance;
+         }
+       }
+       return bestInstance.id;
+    }
+
+    // Need a new instance
+    const newId = `/${baseName}_${instances.length + 1}`;
+    const mode = getModeFactory(baseName);
+    mode.name = newId; // override the namespace name
+    const api = createGameServer(io, db, mode);
+    
+    instances.push({ id: newId, name: baseName, playerLimit: 50, api });
+    console.log(`Provisioned new server instance: ${newId}`);
+    return newId;
+  }
+
+  // Pre-warm the instances (Hub allows up to 100 or something, but let's stick to 50 for everything as requested)
+  getOrProvisionServer('hub');
+  getOrProvisionServer('skybridge');
+  getOrProvisionServer('skycastles');
+  getOrProvisionServer('voidtrail');
+
+  app.get('/api/matchmake', (req, res) => {
+    let mode = (req.query.mode as string) || 'hub';
+    if (mode.includes('_')) {
+       mode = mode.split('_')[0];
+    }
+    const serverId = getOrProvisionServer(mode);
+    res.json({ serverId });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

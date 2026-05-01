@@ -1,3 +1,4 @@
+import { GameModeInfo } from './modes/GameMode';
 import { Server } from 'socket.io';
 import { ChunkManager } from './ChunkManager';
 import { getTerrainHeight, getTerrainMinHeight, isNature, noise2D, noise3D } from '../game/TerrainGenerator';
@@ -10,52 +11,81 @@ import path from 'path';
 
 const bakedBlocks = new Map<string, number>(Object.entries(bakedBlocksData));
 
-export function createGameServer(io: Server, db: any, namespacePrefix: string, worldDataFileName: string, isHubMode: boolean) {
+export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
+    const isHubMode = mode.name.startsWith('/hub');
+    const namespacePrefix = mode.name;
     const worldName = namespacePrefix.replace('/', '');
-    const isSkyCastlesMode = namespacePrefix === '/skycastles' || namespacePrefix === '/voidtrail';
-    const ioNamespace = io.of(namespacePrefix);
-    const WORLD_DATA_FILE = path.join(process.cwd(), worldDataFileName);
+    const isSkyCastlesMode = mode.name.startsWith('/skycastles') || mode.name.startsWith('/voidtrail');
+    const ioNamespace = io.of(mode.name);
+
     const chunkManager = new ChunkManager(worldName, db);
     let npcs: any[] = [];
     const players: Record<string, any> = {};
+
+    function broadcastToNearby(eventName: string, data: any, positionx: number, positionz: number, rangeSq: number, excludeSocketId: string | null = null) {
+      Object.keys(players).forEach(socketId => {
+        if (socketId === excludeSocketId) return;
+        const p = players[socketId];
+        if (!p || !p.position) return;
+        const dx = p.position.x - positionx;
+        const dz = p.position.z - positionz;
+        if (dx * dx + dz * dz <= rangeSq) {
+          ioNamespace.to(socketId).emit(eventName, data);
+        }
+      });
+    }
 
     // Load NPCs (Chunk loading is now implicit inside ChunkManager.getChunkArray)
     try {
       const getNPCs = db.prepare(`SELECT data FROM world_npcs WHERE world = ?`);
       const npcRow = getNPCs.get(worldName) as any;
+      
+      let baseWorldName = worldName;
+      if (worldName.includes('_')) {
+         baseWorldName = worldName.split('_')[0];
+      }
+
       if (npcRow) {
         npcs = JSON.parse(npcRow.data);
         console.log(`Loaded ${npcs.length} NPCs for ${worldName} from DB`);
       } else {
-        npcs = (npcsData as any)[worldName] || [];
+        npcs = (npcsData as any)[baseWorldName] || [];
       }
       if (npcs.length === 0) {
-         npcs = (npcsData as any)[worldName] || [];
+         npcs = (npcsData as any)[baseWorldName] || [];
       }
     } catch (err) {
       console.error('Error loading NPCs:', err);
-      npcs = (npcsData as any)[worldName] || [];
+      
+      let baseWorldName = worldName;
+      if (worldName.includes('_')) {
+         baseWorldName = worldName.split('_')[0];
+      }
+      npcs = (npcsData as any)[baseWorldName] || [];
     }
 
+    const intervals: NodeJS.Timeout[] = [];
+
+    const insertNPCs = db.prepare(`INSERT OR REPLACE INTO world_npcs (world, data) VALUES (?, ?)`);
+    
     // Save world data every 10 seconds
-    setInterval(() => {
+    intervals.push(setInterval(() => {
        chunkManager.saveDirtyChunks();
        // Also save NPCs if dirty
        try {
-         const insertNPCs = db.prepare(`INSERT OR REPLACE INTO world_npcs (world, data) VALUES (?, ?)`);
          if (npcs.length > 0) insertNPCs.run(worldName, JSON.stringify(npcs));
        } catch(e) {}
-    }, 10000);
+    }, 10000));
 
     // Unload idle chunks every 30 seconds
-    setInterval(() => {
+    intervals.push(setInterval(() => {
        chunkManager.unloadIdleChunks(players, 6); // 6 chunk render distance
-    }, 30000);
+    }, 30000));
 
     // Sync time every 10 seconds to save bandwidth
-    setInterval(() => {
+    intervals.push(setInterval(() => {
        ioNamespace.emit('timeUpdate', { dayTime });
-    }, 10000);
+    }, 10000));
 
   
     const droppedItems: Record<string, any> = {};
@@ -71,6 +101,9 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
 
     // Indestructible blocks (baked builds, bedrock, castles, villages)
     function isIndestructible(x: number, y: number, z: number): boolean {
+      return mode.isIndestructible(x, y, z, bakedBlocks);
+    }
+    function DEPRECATED_isIndestructible(x: number, y: number, z: number): boolean {
       if (isHubMode) return true; // Entire hub is indestructible
       const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
       if (bakedBlocks.has(key)) return true;
@@ -78,13 +111,13 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       // Bedrock is always indestructible
       if (y === -60) return true;
   
-      // Castle footprints (only in SkyCastles mode)
+      // Ship/Castle footprints (only in SkyCastles mode)
       if (isSkyCastlesMode) {
-        const isWithinX = x >= -30 && x <= 30;
-        const castleCenter = 200;
-        const isBlueCastleZ = z >= (castleCenter - 30) && z <= (castleCenter + 30);
-        const isRedCastleZ = z >= -(castleCenter + 30) && z <= -(castleCenter - 30);
-        if (isWithinX && (isBlueCastleZ || isRedCastleZ) && y >= 4) {
+        const isWithinX = x >= -45 && x <= 45;
+        const shipCenter = 450;
+        const isBlueShip = z >= (shipCenter - 50) && z <= (shipCenter + 100);
+        const isRedShip = z >= -(shipCenter + 100) && z <= -(shipCenter - 50);
+        if (isWithinX && (isBlueShip || isRedShip) && y >= 130) {
           return true;
         }
       }
@@ -103,6 +136,9 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
     }
   
     function getBlockAt(x: number, y: number, z: number) {
+      return mode.getBlockAt(x, y, z, chunkManager, bakedBlocks);
+    }
+    function DEPRECATED_getBlockAt(x: number, y: number, z: number) {
       if (isHubMode) {
         const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
         
@@ -164,7 +200,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       if (isVoid) return BLOCK.AIR;
   
       if (isSkyCastlesMode) {
-        if (Math.abs(z) >= 320 || Math.abs(x) > 95) return BLOCK.AIR;
+        if (Math.abs(z) >= 550 || Math.abs(x) > 95) return BLOCK.AIR;
       }
 
       const groundY = getTerrainHeight(x, z, isSkyCastlesMode);
@@ -295,9 +331,34 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       // Handle player join
       socket.on('join', (data) => {
+        let team = null;
+        
+        if (!isHubMode) {
+          let b = 0; let r = 0;
+          Object.values(players).forEach(p => {
+             if (p.team === 'blue') b++;
+             if (p.team === 'red') r++;
+          });
+          if (b < 25 && b <= r) {
+             team = 'blue';
+          } else if (r < 25) {
+             team = 'red';
+          } else if (b < 25) {
+             team = 'blue';
+          } else {
+             team = Math.random() < 0.5 ? 'blue' : 'red'; // Fallback if somehow both are >= 25
+          }
+        }
+        
+        const respawnData = mode.getRespawnPosition(socket.id, { team, position: data.position });
+        const initialPos = { x: respawnData.x, y: respawnData.y, z: respawnData.z };
+        
+        // Force the client to accept the server-authoritative spawn position
+        socket.emit('playerRespawn', { id: socket.id, position: initialPos });
+
         players[socket.id] = {
           id: socket.id,
-          position: data.position,
+          position: initialPos,
           rotation: data.rotation,
           skinSeed: data.skinSeed || socket.id,
           name: data.name || 'Unknown Player',
@@ -305,7 +366,8 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
           maxHealth: 100,
           skills: data.skills || {},
           heldItem: data.heldItem || 0,
-          offHandItem: data.offHandItem || 0
+          offHandItem: data.offHandItem || 0,
+          team: team
         };
         socket.broadcast.emit('playerJoined', players[socket.id]);
       });
@@ -415,7 +477,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         
                 if (mob.health <= 0) {
                   delete mobs[targetId];
-                  ioNamespace.emit('mobDespawned', targetId);
+                  broadcastToNearby('mobDespawned', targetId, mob.position.x, mob.position.z, 22500);
                 } else {
                   mob.velocity.x = knockbackDir.x * 1.5;
                   mob.velocity.z = knockbackDir.z * 1.5;
@@ -434,14 +496,18 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
             
                 const targetDefense = target.defense || 0;
                 const reduction = targetDefense / (targetDefense + 100);
-                const actualDamage = Math.floor(damage * (1 - reduction));
+                let actualDamage = damage * (1 - reduction);
+                if (target.isBlocking) {
+                  actualDamage *= 0.5;
+                }
+                actualDamage = Math.floor(actualDamage);
                 
                 target.health -= actualDamage;
                 if (target.health <= 0 && !target.isDead) {
                   target.isDead = true;
                   let deathMessage = `${target.name} was slain by ${attacker.name}`;
-                  ioNamespace.emit('chatMessage', { sender: 'System', message: deathMessage });
-                  ioNamespace.emit('playerDied', { id: targetId });
+                  broadcastToNearby('chatMessage', { sender: 'System', message: deathMessage }, target.position.x, target.position.z, 22500);
+                  broadcastToNearby('playerDied', { id: targetId }, target.position.x, target.position.z, 22500);
                 }
                 pendingHits.push({ id: targetId, damage: actualDamage, knockbackDir, attackerId: socket.id, isCrit });
             }
@@ -451,38 +517,46 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       socket.on('requestRespawn', () => {
         const p = players[socket.id];
         if (p && p.isDead) {
-          p.health = 100;
+          p.health = Math.max(100, p.maxHealth || 100);
           p.isDead = false;
-          if (isHubMode) {
-            p.position = { x: 0, y: 10, z: 0 };
-          } else {
-            const sideZ = p.position.z >= 0 ? 1 : -1;
-            const shipCenterZ = isSkyCastlesMode ? 340 : 80;
-            p.position = { x: 0, y: 207, z: sideZ * shipCenterZ };
-          }
+          p.position = mode.getRespawnPosition(p.id, p);
           ioNamespace.emit('playerRespawn', { id: socket.id, position: p.position });
         }
       });
   
       // Handle binary packed player movement
       socket.on('moveP', (buf: Buffer | ArrayBuffer) => {
-        if (!players[socket.id]) return;
+        const player = players[socket.id];
+        if (!player) return;
         
         try {
           // Socket.IO receives Node 'Buffer' in the backend
-          const arrayBuffer = Buffer.isBuffer(buf) ? buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) : buf;
-          const view = new DataView(arrayBuffer as ArrayBuffer);
+          let view: DataView;
+          if (Buffer.isBuffer(buf)) {
+             view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+          } else {
+             view = new DataView(buf as ArrayBuffer);
+          }
           const px = view.getFloat32(0);
           const py = view.getFloat32(4);
           const pz = view.getFloat32(8);
           const rx = view.getFloat32(12);
           const ry = view.getFloat32(16);
           
-          const newPos = { x: px, y: py, z: pz };
-          const oldPos = players[socket.id].position;
+          if (player.position && !player.isDead) {
+            const dx = player.position.x - px;
+            const dy = player.position.y - py;
+            const dz = player.position.z - pz;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > 900) { // Teleporting more than 30 blocks instantly is invalid
+              socket.emit('playerRespawn', { id: socket.id, position: player.position });
+              return;
+            }
+          }
           
-          players[socket.id].position = newPos;
-          players[socket.id].rotation = { x: rx, y: ry, z: 0 };
+          const newPos = { x: px, y: py, z: pz };
+          player.position = newPos;
+          player.rotation = { x: rx, y: ry, z: 0 };
           
           pendingPlayerUpdates.add(socket.id);
         } catch (e) {
@@ -498,6 +572,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         players[socket.id].isSprinting = state.isSprinting;
         players[socket.id].isSwinging = state.isSwinging;
         players[socket.id].isGliding = state.isGliding;
+        players[socket.id].isBlocking = state.isBlocking;
         players[socket.id].swingSpeed = state.swingSpeed;
         players[socket.id].isGrounded = state.isGrounded;
         players[socket.id].heldItem = state.heldItem;
@@ -508,19 +583,32 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       
       // Handle legacy player movement
       socket.on('move', (data) => {
-        if (players[socket.id]) {
-          players[socket.id].position = data.position;
-          players[socket.id].rotation = data.rotation;
-          players[socket.id].isFlying = data.isFlying;
-          players[socket.id].isSwimming = data.isSwimming;
-          players[socket.id].isCrouching = data.isCrouching;
-          players[socket.id].isSprinting = data.isSprinting;
-          players[socket.id].isSwinging = data.isSwinging;
-          players[socket.id].swingSpeed = data.swingSpeed;
-          players[socket.id].isGrounded = data.isGrounded;
-          players[socket.id].heldItem = data.heldItem;
-          players[socket.id].offHandItem = data.offHandItem || 0;
-          players[socket.id].defense = data.defense || 0;
+        const player = players[socket.id];
+        if (player) {
+          // Anti-cheat: distance limit per tick
+          if (player.position && !player.isDead) {
+            const dx = player.position.x - data.position.x;
+            const dy = player.position.y - data.position.y;
+            const dz = player.position.z - data.position.z;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > 900) { // Teleporting more than 30 blocks instantly is invalid
+              socket.emit('playerRespawn', { id: socket.id, position: player.position });
+              return;
+            }
+          }
+
+          player.position = data.position;
+          player.rotation = data.rotation;
+          player.isFlying = data.isFlying;
+          player.isSwimming = data.isSwimming;
+          player.isCrouching = data.isCrouching;
+          player.isSprinting = data.isSprinting;
+          player.isSwinging = data.isSwinging;
+          player.swingSpeed = data.swingSpeed;
+          player.isGrounded = data.isGrounded;
+          player.heldItem = data.heldItem;
+          player.offHandItem = data.offHandItem || 0;
+          player.defense = data.defense || 0;
           
           pendingPlayerUpdates.add(socket.id);
         }
@@ -557,8 +645,8 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         chunkManager.setBlockInChunk(cx, cz, lx, ly, lz, type);
         chunkManager.markChunkDirty(x, z);
         
-        // Broadcast to others immediately (blocks are rare compared to movement)
-        socket.broadcast.emit('blockChanged', data);
+        // Broadcast to nearby players
+        broadcastToNearby('blockChanged', data, player.position.x, player.position.z, 22500, socket.id); // 150 blocks radius
       });
   
       // Handle chat message
@@ -669,7 +757,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
       });
   
       socket.on('spawnMob', (data) => {
-        if (isHubMode || (isSkyCastlesMode && data?.type !== 'Morvane')) return;
+        if (!mode.allowPlayerMobSpawns && data?.type !== 'Morvane') return;
         if (!data || !data.type || !data.position) return;
         const { type, position, level } = data;
         
@@ -691,6 +779,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         console.log('Player disconnected:', socket.id);
         delete players[socket.id];
         pendingPlayerUpdates.delete(socket.id);
+        playerBuffers.delete(socket.id);
         ioNamespace.emit('playerLeft', socket.id);
       });
     });
@@ -702,29 +791,24 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
     const spatialHash = new Map<number, any[]>();
     const playerHash = new Map<number, any[]>();
 
+    // Player Buffer Pool to prevent GC pauses
+    const playerBuffers = new Map<string, Buffer>();
+
     // Server Tick Loop (20Hz)
     let lastTickTime = Date.now();
-    setInterval(() => {
+    intervals.push(setInterval(() => {
       const now = Date.now();
       let delta = (now - lastTickTime) / 1000;
       if (delta > 0.1) delta = 0.1; // Cap delta to prevent huge jumps
       lastTickTime = now;
       
-      // Player updates (Spatial Interest Management)
+      // Player updates (Global Broadcast for scalability)
       if (pendingPlayerUpdates.size > 0) {
-        Object.keys(players).forEach(socketId => {
-          const povPlayer = players[socketId];
-          const updates: Record<string, any[]> = {};
-          let count = 0;
-          for (const id of pendingPlayerUpdates) {
-            if (id === socketId && !povPlayer) continue; // always send others
-            const p = players[id];
-            if (p && povPlayer) {
-              const dx = povPlayer.position.x - p.position.x;
-              const dz = povPlayer.position.z - p.position.z;
-              if (dx*dx + dz*dz > 14400) continue; // skip if > 120 blocks away
-            }
-            if (p) {
+        // Pre-compute buffers for all pending players
+        const updates: Record<string, Buffer> = {};
+        for (const id of pendingPlayerUpdates) {
+           const p = players[id];
+           if (p && !p.isDead) {
               let stateMask = 0;
               if (p.isFlying) stateMask |= 1;
               if (p.isSwimming) stateMask |= 2;
@@ -735,52 +819,39 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
               if (p.isBlocking) stateMask |= 64;
               if (p.isGliding) stateMask |= 128;
 
-              updates[id] = [
-                Math.round(p.position.x * 100) / 100,
-                Math.round(p.position.y * 100) / 100,
-                Math.round(p.position.z * 100) / 100,
-                Math.round(p.rotation.x * 100) / 100,
-                Math.round(p.rotation.y * 100) / 100,
-                stateMask,
-                p.swingSpeed,
-                p.heldItem || 0,
-                p.offHandItem || 0,
-                Math.round(p.health || 0)
-              ];
-              count++;
-            }
-          }
-          if (count > 0) ioNamespace.to(socketId).emit('playersUpdate', updates);
-        });
+              let buf = playerBuffers.get(id);
+              if (!buf) {
+                 buf = Buffer.allocUnsafe(11 * 4);
+                 playerBuffers.set(id, buf);
+              }
+              const arr = new Float32Array(buf.buffer, buf.byteOffset, 11);
+
+              arr[0] = p.position.x;
+              arr[1] = p.position.y;
+              arr[2] = p.position.z;
+              arr[3] = p.rotation.x;
+              arr[4] = p.rotation.y;
+              arr[5] = stateMask;
+              arr[6] = p.swingSpeed || 0;
+              arr[7] = p.heldItem || 0;
+              arr[8] = p.offHandItem || 0;
+              arr[9] = p.defense || 0;
+              arr[10] = p.health || 0;
+              
+              updates[id] = buf;
+           }
+        }
+
+        ioNamespace.volatile.emit('playersUpdate', updates);
         pendingPlayerUpdates.clear();
       }
 
       if (pendingHits.length > 0) {
-        Object.keys(players).forEach(socketId => {
-           const povPlayer = players[socketId];
-           const batched = pendingHits.filter(hit => {
-              const target = players[hit.id];
-              if (!target || !povPlayer) return true;
-              const dx = povPlayer.position.x - target.position.x;
-              const dz = povPlayer.position.z - target.position.z;
-              return (dx*dx + dz*dz <= 14400);
-           });
-           if (batched.length > 0) ioNamespace.to(socketId).emit('batchedPlayerHits', batched);
-        });
+        ioNamespace.emit('batchedPlayerHits', pendingHits);
         pendingHits.length = 0;
       }
       if (pendingMobHits.length > 0) {
-        Object.keys(players).forEach(socketId => {
-           const povPlayer = players[socketId];
-           const batched = pendingMobHits.filter(hit => {
-              const target = mobs[hit.id];
-              if (!target || !povPlayer) return true;
-              const dx = povPlayer.position.x - target.position.x;
-              const dz = povPlayer.position.z - target.position.z;
-              return (dx*dx + dz*dz <= 14400);
-           });
-           if (batched.length > 0) ioNamespace.to(socketId).emit('batchedMobHits', batched);
-        });
+        ioNamespace.emit('batchedMobHits', pendingMobHits);
         pendingMobHits.length = 0;
       }
   
@@ -934,8 +1005,8 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
 
                 if (closestPlayer.health <= 0 && !closestPlayer.isDead) {
                   closestPlayer.isDead = true;
-                  ioNamespace.emit('chatMessage', { sender: 'System', message: `${closestPlayer.name} was slain by a ${mob.type}` });
-                  ioNamespace.emit('playerDied', { id: closestPlayer.id });
+                  broadcastToNearby('chatMessage', { sender: 'System', message: `${closestPlayer.name} was slain by a ${mob.type}` }, closestPlayer.position.x, closestPlayer.position.z, 22500);
+                  broadcastToNearby('playerDied', { id: closestPlayer.id }, closestPlayer.position.x, closestPlayer.position.z, 22500);
                 }
               }
             }
@@ -982,10 +1053,11 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         let pushX = 0;
         let pushZ = 0;
         const pushRadius = 0.8;
+        let pushCount = 0; // Optimization: limit collision interactions per tick to prevent O(n^2) clustering lag
         
-        for (let ix = -1; ix <= 1; ix++) {
-          for (let iy = -1; iy <= 1; iy++) {
-            for (let iz = -1; iz <= 1; iz++) {
+        for (let ix = -1; ix <= 1 && pushCount < 4; ix++) {
+          for (let iy = -1; iy <= 1 && pushCount < 4; iy++) {
+            for (let iz = -1; iz <= 1 && pushCount < 4; iz++) {
               const key = getCellKey(mpCX + ix, mpCY + iy, mpCZ + iz);
               const cellPlayers = playerHash.get(key);
               if (cellPlayers) {
@@ -998,6 +1070,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
                        const dist = Math.sqrt(distSq);
                        pushX += (dx / dist) * (pushRadius - dist) * 0.2;
                        pushZ += (dz / dist) * (pushRadius - dist) * 0.2;
+                       pushCount++;
                     }
                   }
                 }
@@ -1010,9 +1083,9 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         const mx = mob.position.x;
         const my = mob.position.y;
         const mz = mob.position.z;
-        for (let ix = -1; ix <= 1; ix++) {
-          for (let iy = -1; iy <= 1; iy++) {
-             for (let iz = -1; iz <= 1; iz++) {
+        for (let ix = -1; ix <= 1 && pushCount < 8; ix++) {
+          for (let iy = -1; iy <= 1 && pushCount < 8; iy++) {
+             for (let iz = -1; iz <= 1 && pushCount < 8; iz++) {
                const key = getCellKey(Math.floor((mx + ix*CELL_SIZE)/CELL_SIZE), Math.floor((my + iy*CELL_SIZE)/CELL_SIZE), Math.floor((mz + iz*CELL_SIZE)/CELL_SIZE));
                const adjacentMobs = spatialHash.get(key);
                if (adjacentMobs) {
@@ -1026,6 +1099,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
                         const dist = Math.sqrt(distSq);
                         pushX += (dx / dist) * (pushRadius - dist) * 0.2;
                         pushZ += (dz / dist) * (pushRadius - dist) * 0.2;
+                        pushCount++;
                      }
                    }
                  }
@@ -1162,16 +1236,17 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
   
       if (Object.keys(mobs).length > 0) {
         let numPackedMobs = 0;
-        const packedMobs: Record<string, any[]> = {};
+        const packedMobs: Record<string, Buffer> = {};
         for(const id in mobs) {
            const m = mobs[id];
            if (Math.abs((m.lastX || 0) - m.position.x) > 0.05 || Math.abs((m.lastY || 0) - m.position.y) > 0.05 || Math.abs((m.lastZ || 0) - m.position.z) > 0.05 || m.lastHealth !== m.health) {
-             packedMobs[id] = [
-               Number(m.position.x.toFixed(2)),
-               Number(m.position.y.toFixed(2)),
-               Number(m.position.z.toFixed(2)),
-               Math.floor(m.health)
-             ];
+             const arr = new Float32Array([
+               m.position.x,
+               m.position.y,
+               m.position.z,
+               m.health || 0
+             ]);
+             packedMobs[id] = Buffer.from(arr.buffer);
              m.lastX = m.position.x;
              m.lastY = m.position.y;
              m.lastZ = m.position.z;
@@ -1226,7 +1301,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
                     }
                  }
               }
-              if (count > 0) ioNamespace.to(socketId).emit('mobsUpdate', updates);
+              if (count > 0) ioNamespace.to(socketId).volatile.emit('mobsUpdate', updates);
            });
         }
       }
@@ -1245,17 +1320,18 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
           }
         }
       }
-    }, 50);
+    }, 50));
   
     // Mob Spawning Loop
     let spawnInterval = 1000;
     
     const spawnMobsTick = () => {
+      if (isDestroyed) return;
       const isDay = Math.sin(dayTime * Math.PI * 2) > 0;
       spawnInterval = isDay ? 1000 : 500; // Double spawn rate at night
       setTimeout(spawnMobsTick, spawnInterval);
 
-      if (isHubMode || isSkyCastlesMode) return;
+      if (!mode.allowMobSpawns) return;
       const playerIds = Object.keys(players);
       if (playerIds.length === 0) return;
       
@@ -1386,7 +1462,7 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
     setTimeout(spawnMobsTick, spawnInterval);
   
     // Mob Despawn Loop (Every 10 seconds)
-    setInterval(() => {
+    intervals.push(setInterval(() => {
       const playerIds = Object.keys(players);
       const isDay = Math.sin(dayTime * Math.PI * 2) > 0;
       
@@ -1432,10 +1508,10 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
           ioNamespace.emit('mobDespawned', id);
         }
       }
-    }, 10000);
+    }, 10000));
   
     // Item Despawn Loop (Every 30 seconds)
-    setInterval(() => {
+    intervals.push(setInterval(() => {
       const now = Date.now();
       const expiryTime = 5 * 60 * 1000; // 5 minutes
       let despawned = 0;
@@ -1448,6 +1524,19 @@ export function createGameServer(io: Server, db: any, namespacePrefix: string, w
         }
         if (despawned > 50) break; // Limit despawns per tick
       }
-    }, 30000);
+    }, 30000));
   
+    // Mob Spawning ticks - wait, that's done with setTimeout.
+    // Let's clear the timeouts via a boolean flag
+    let isDestroyed = false;
+    
+    return {
+      destroy: () => {
+        isDestroyed = true;
+        intervals.forEach(clearInterval);
+        ioNamespace.removeAllListeners();
+        console.log(`Destroyed instance ${mode.name}`);
+      },
+      isDestroyed: () => isDestroyed
+    };
   }

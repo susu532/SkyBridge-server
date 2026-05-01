@@ -22,6 +22,7 @@ export class ChunkManager {
     this.insertChunk = db.prepare(`INSERT OR REPLACE INTO chunk_data (world, chunk_id, data) VALUES (?, ?, ?)`);
     this.getChunk = db.prepare(`SELECT data FROM chunk_data WHERE world = ? AND chunk_id = ?`);
     this.getAllChunks = db.prepare(`SELECT chunk_id, data FROM chunk_data WHERE world = ?`);
+    this.getBlockChangesDict(); // Initialize cache on startup
   }
 
   getChunkArray(cx: number, cz: number, createIfMissing: boolean = true) {
@@ -89,6 +90,12 @@ export class ChunkManager {
          const idx = lx | (lz << 4) | (ly << 8);
          const type = arr[idx];
          if (type !== 0xFFFF) return type;
+      } else if (this.cachedBlockChanges) {
+         const wx = cx * CHUNK_SIZE + lx;
+         const wz = cz * CHUNK_SIZE + lz;
+         const wy = ly + WORLD_Y_OFFSET;
+         const val = this.cachedBlockChanges[`${wx},${wy},${wz}`];
+         if (val !== undefined) return val;
       }
     }
     return undefined;
