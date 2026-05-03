@@ -8,5 +8,5 @@ export interface GameModeInfo {
   
   isIndestructible(x: number, y: number, z: number, bakedBlocks: Map<string, number>): boolean;
   getBlockAt(x: number, y: number, z: number, chunkManager: ChunkManager, bakedBlocks: Map<string, number>): number;
-  getRespawnPosition(playerId: string, playerState?: any): {x: number, y: number, z: number};
+  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number};
 }

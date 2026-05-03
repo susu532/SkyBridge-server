@@ -486,6 +486,11 @@ export enum ItemType {
   TORCH_WALL_X_NEG = 511,
   TORCH_WALL_Z_POS = 512,
   TORCH_WALL_Z_NEG = 513,
+  LAUNCHER = 514,
+  LAUNCHER_WALL_X_POS = 515,
+  LAUNCHER_WALL_X_NEG = 516,
+  LAUNCHER_WALL_Z_POS = 517,
+  LAUNCHER_WALL_Z_NEG = 518,
   MINION = 500,
 };
 
@@ -692,6 +697,7 @@ export class Inventory {
     this.addItem(ItemType.WOOD, 4);
     this.addItem(ItemType.STONE, 8);
     this.addItem(ItemType.TORCH, 64);
+    this.addItem(ItemType.LAUNCHER, 64);
     
     // Add some SkyBridge items
     this.addItem(ItemType.ASPECT_OF_THE_END, 1, {
@@ -794,7 +800,7 @@ export class Inventory {
 
   removeItem(type: ItemType, count: number): boolean {
     if (type === ItemType.SKYCOIN) {
-      const current = useGameStore.getState().skycoins;
+      const current = useGameStore.getState().getSkycoins();
       if (current < count) return false;
       useGameStore.getState().setSkycoins(current - count);
       return true;

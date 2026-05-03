@@ -1420,6 +1420,41 @@ export function createTextureAtlas(): THREE.Texture {
   ctx.fillStyle = '#444444'; // Metal highlights
   for(let i=0; i<10; i++) ctx.fillRect(17 * size + Math.random()*14, 24 * size + Math.random()*14, 2, 2);
 
+  // 0,25: Launcher Pad
+  drawTile(0, 25, '#1e1e24', '#2a2a35'); // Dark metallic base
+  
+  // Outer border
+  ctx.fillStyle = '#111111';
+  ctx.fillRect(0 * size, 25 * size, size, 1);
+  ctx.fillRect(0 * size, 25 * size + size - 1, size, 1);
+  ctx.fillRect(0 * size, 25 * size, 1, size);
+  ctx.fillRect(0 * size + size - 1, 25 * size, 1, size);
+  
+  // Inner metallic pad
+  ctx.fillStyle = '#3a3a48';
+  ctx.fillRect(0 * size + 2, 25 * size + 2, size - 4, size - 4);
+  
+  // Glowing center
+  ctx.fillStyle = '#8a2be2'; // Purple glow
+  ctx.shadowBlur = 5;
+  ctx.shadowColor = '#9b59b6';
+  ctx.fillRect(0 * size + 4, 25 * size + 4, 8, 8);
+  
+  // Up arrow in the center
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(0 * size + 8, 25 * size + 4); // Peak
+  ctx.lineTo(0 * size + 12, 25 * size + 8); // Right
+  ctx.lineTo(0 * size + 9, 25 * size + 8);
+  ctx.lineTo(0 * size + 9, 25 * size + 11); // Bottom right
+  ctx.lineTo(0 * size + 7, 25 * size + 11); // Bottom left
+  ctx.lineTo(0 * size + 7, 25 * size + 8); 
+  ctx.lineTo(0 * size + 4, 25 * size + 8); // Left
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 0; // Reset
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
@@ -1818,8 +1853,14 @@ BLOCK_UVS[BLOCK.CHISELED_BOOKSHELF] = [[31,24], [31,24], [31,24], [31,24], [31,2
 BLOCK_UVS[BLOCK.COMMAND_BLOCK] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
 BLOCK_UVS[BLOCK.REPEATING_COMMAND_BLOCK] = [[1,25], [1,25], [1,25], [1,25], [1,25], [1,25]];
 BLOCK_UVS[BLOCK.CHAIN_COMMAND_BLOCK] = [[2,25], [2,25], [2,25], [2,25], [2,25], [2,25]];
+BLOCK_UVS[BLOCK.LAUNCHER] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
 BLOCK_UVS[BLOCK.STRUCTURE_BLOCK] = [[3,25], [3,25], [3,25], [3,25], [3,25], [3,25]];
 BLOCK_UVS[BLOCK.BARRIER] = [[4,25], [4,25], [4,25], [4,25], [4,25], [4,25]];
+BLOCK_UVS[BLOCK.LAUNCHER] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
+BLOCK_UVS[BLOCK.LAUNCHER_WALL_X_POS] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
+BLOCK_UVS[BLOCK.LAUNCHER_WALL_X_NEG] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
+BLOCK_UVS[BLOCK.LAUNCHER_WALL_Z_POS] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
+BLOCK_UVS[BLOCK.LAUNCHER_WALL_Z_NEG] = [[0,25], [0,25], [0,25], [0,25], [0,25], [0,25]];
 BLOCK_UVS[BLOCK.LIGHT_BLOCK] = [[5,25], [5,25], [5,25], [5,25], [5,25], [5,25]];
 BLOCK_UVS[BLOCK.SPAWNER] = [[6,25], [6,25], [6,25], [6,25], [6,25], [6,25]];
 BLOCK_UVS[BLOCK.DRAGON_EGG] = [[7,25], [7,25], [7,25], [7,25], [7,25], [7,25]];
@@ -2099,6 +2140,11 @@ IS_CUTOUT[BLOCK.TORCH_WALL_X_POS] = true;
 IS_CUTOUT[BLOCK.TORCH_WALL_X_NEG] = true;
 IS_CUTOUT[BLOCK.TORCH_WALL_Z_POS] = true;
 IS_CUTOUT[BLOCK.TORCH_WALL_Z_NEG] = true;
+IS_CUTOUT[BLOCK.LAUNCHER] = true;
+IS_CUTOUT[BLOCK.LAUNCHER_WALL_X_POS] = true;
+IS_CUTOUT[BLOCK.LAUNCHER_WALL_X_NEG] = true;
+IS_CUTOUT[BLOCK.LAUNCHER_WALL_Z_POS] = true;
+IS_CUTOUT[BLOCK.LAUNCHER_WALL_Z_NEG] = true;
 
 export const isCutout = (blockType: number) => {
   return IS_CUTOUT[blockType] || false;
@@ -2143,6 +2189,11 @@ IS_SOLID[BLOCK.TORCH_WALL_X_POS] = false;
 IS_SOLID[BLOCK.TORCH_WALL_X_NEG] = false;
 IS_SOLID[BLOCK.TORCH_WALL_Z_POS] = false;
 IS_SOLID[BLOCK.TORCH_WALL_Z_NEG] = false;
+IS_SOLID[BLOCK.LAUNCHER] = false;
+IS_SOLID[BLOCK.LAUNCHER_WALL_X_POS] = false;
+IS_SOLID[BLOCK.LAUNCHER_WALL_X_NEG] = false;
+IS_SOLID[BLOCK.LAUNCHER_WALL_Z_POS] = false;
+IS_SOLID[BLOCK.LAUNCHER_WALL_Z_NEG] = false;
 IS_SOLID[BLOCK.AZALEA] = false;
 IS_SOLID[BLOCK.FLOWERING_AZALEA] = false;
 IS_SOLID[BLOCK.SPORE_BLOSSOM] = false;

@@ -479,5 +479,6 @@
   "LAPIS_LAZULI": "Lapis Lazuli",
   "COPPER_INGOT": "Copper Ingot",
   "MINION": "Cobblestone Minion I",
-  "TORCH": "Torch"
+  "TORCH": "Torch",
+  "LAUNCHER": "Launcher"
 }

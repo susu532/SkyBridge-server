@@ -2,6 +2,9 @@ import { GameModeInfo } from './GameMode';
 import { BLOCK, CHUNK_SIZE, WORLD_Y_OFFSET } from '../constants';
 import { ChunkManager } from '../ChunkManager';
 import { getTerrainHeight, getTerrainMinHeight, noise2D, noise3D } from '../../game/TerrainGenerator';
+import { skycastlesBakedBlocks } from '../../game/SkycastlesBakedBlocks';
+import { getGiantMythicalShipBlock } from '../../game/generation/ShipGenerator';
+import { getCastleBlock } from '../../game/generation/SkyCastlesGenerator';
 
 export class SkyCastlesMode implements GameModeInfo {
   name: string;
@@ -15,9 +18,14 @@ export class SkyCastlesMode implements GameModeInfo {
 
   isIndestructible(x: number, y: number, z: number, bakedBlocks: Map<string, number>): boolean {
     const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
-    if (bakedBlocks.has(key)) return true;
-    if (y === -60) return true;
+    
+    // TEMPORARILY DISABLED to allow map building and baking:
+    // if (skycastlesBakedBlocks.has(key) && skycastlesBakedBlocks.get(key) !== 0) return true;
+    // if (bakedBlocks.has(key) && bakedBlocks.get(key) !== 0) return true;
+    
+    if (y === -60) return true; // Keep bedrock indestructible
 
+    /* TEMPORARILY DISABLED ship protection for map building
     const isWithinX = x >= -45 && x <= 45;
     const shipCenter = 450;
     const isBlueShip = z >= (shipCenter - 50) && z <= (shipCenter + 100);
@@ -25,6 +33,7 @@ export class SkyCastlesMode implements GameModeInfo {
     if (isWithinX && (isBlueShip || isRedShip) && y >= 130) {
       return true;
     }
+    */
 
     return false;
   }
@@ -39,7 +48,29 @@ export class SkyCastlesMode implements GameModeInfo {
 
     const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
     if (bakedBlocks.has(key)) return bakedBlocks.get(key)!;
+    if (skycastlesBakedBlocks.has(key)) return skycastlesBakedBlocks.get(key)!;
     
+    // Check generators
+    if (y >= 130) {
+      if (z >= 200 && z <= 550 && x >= -45 && x <= 45) {
+        const shipBlock = getGiantMythicalShipBlock(x, y, z, true);
+        if (shipBlock !== BLOCK.AIR) return shipBlock;
+      }
+      if (z <= -200 && z >= -550 && x >= -45 && x <= 45) {
+        const shipBlock = getGiantMythicalShipBlock(x, y, z, false);
+        if (shipBlock !== BLOCK.AIR) return shipBlock;
+      }
+      
+      // Castle area (approximate, should match SkyCastlesGenerator)
+      if (z > 0) {
+        const castleBlock = getCastleBlock(x, y - 120, z, 200, BLOCK.BLUE_STONE, true);
+        if (castleBlock !== BLOCK.AIR) return castleBlock;
+      } else {
+        const castleBlock = getCastleBlock(x, y - 120, z, -200, BLOCK.RED_STONE, true);
+        if (castleBlock !== BLOCK.AIR) return castleBlock;
+      }
+    }
+
     const isBlueSide = z >= 70;
     const isRedSide = z <= -70;
     const isVoid = !isBlueSide && !isRedSide;
@@ -65,7 +96,7 @@ export class SkyCastlesMode implements GameModeInfo {
     return BLOCK.AIR;  
   }
 
-  getRespawnPosition(playerId: string, playerState?: any): {x: number, y: number, z: number} {
+  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number} {
     const rx = (Math.random() - 0.5) * 2;
     const rz = (Math.random() - 0.5) * 2;
     let sideZ = 1;

@@ -12,7 +12,11 @@ interface GameState {
   inventoryIsOpen: boolean;
   setInventoryIsOpen: (isOpen: boolean) => void;
   
-  skycoins: number;
+  currentMode: string;
+  setCurrentMode: (mode: string) => void;
+
+  skycoins: Record<string, number>;
+  getSkycoins: () => number;
   setSkycoins: (amount: number) => void;
   addSkycoins: (amount: number) => void;
   
@@ -45,7 +49,7 @@ interface GameState {
 
 let messageIdCounter = 0;
 
-export const useGameStore = create<GameState>((set) => ({
+export const useGameStore = create<GameState>((set, get) => ({
   inventoryVersion: 0,
   incrementInventoryVersion: () => set((state) => ({ inventoryVersion: state.inventoryVersion + 1 })),
   
@@ -55,9 +59,20 @@ export const useGameStore = create<GameState>((set) => ({
   inventoryIsOpen: false,
   setInventoryIsOpen: (isOpen) => set({ inventoryIsOpen: isOpen }),
 
-  skycoins: 500, // Starting Skycoins
-  setSkycoins: (amount) => set({ skycoins: amount }),
-  addSkycoins: (amount) => set((state) => ({ skycoins: state.skycoins + amount })),
+  currentMode: 'hub',
+  setCurrentMode: (mode) => set({ currentMode: mode }),
+
+  skycoins: {}, 
+  getSkycoins: () => {
+    return get().skycoins[get().currentMode] ?? 500;
+  },
+  setSkycoins: (amount) => set((state) => {
+    return { skycoins: { ...state.skycoins, [state.currentMode]: amount } };
+  }),
+  addSkycoins: (amount) => set((state) => {
+    const current = state.skycoins[state.currentMode] ?? 500;
+    return { skycoins: { ...state.skycoins, [state.currentMode]: current + amount } };
+  }),
 
   messages: [],
   addMessage: (text, color = '#FFFFFF') => {

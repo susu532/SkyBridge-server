@@ -1,6 +1,7 @@
 import { HubMode } from './src/server/modes/HubMode';
 import { SkyBridgeMode } from './src/server/modes/SkyBridgeMode';
 import { SkyCastlesMode } from './src/server/modes/SkyCastlesMode';
+import { DungeonDelverMode } from './src/server/modes/DungeonDelverMode';
 import { createGameServer } from './src/server/GameServer';
 import express from 'express';
 
@@ -106,6 +107,7 @@ async function startServer() {
     if (baseName === 'skybridge') return new SkyBridgeMode();
     if (baseName === 'skycastles') return new SkyCastlesMode('/skycastles');
     if (baseName === 'voidtrail') return new SkyCastlesMode('/voidtrail');
+    if (baseName === 'dungeondelver') return new DungeonDelverMode();
     return new HubMode();
   }
 
@@ -152,6 +154,7 @@ async function startServer() {
   getOrProvisionServer('skybridge');
   getOrProvisionServer('skycastles');
   getOrProvisionServer('voidtrail');
+  getOrProvisionServer('dungeondelver');
 
   app.get('/api/matchmake', (req, res) => {
     let mode = (req.query.mode as string) || 'hub';

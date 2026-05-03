@@ -350,11 +350,11 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           }
         }
         
-        const respawnData = mode.getRespawnPosition(socket.id, { team, position: data.position });
+        const respawnData = mode.getRespawnPosition(socket.id, { team, position: data.position }, chunkManager, bakedBlocks);
         const initialPos = { x: respawnData.x, y: respawnData.y, z: respawnData.z };
         
         // Force the client to accept the server-authoritative spawn position
-        socket.emit('playerRespawn', { id: socket.id, position: initialPos });
+        socket.emit('playerRespawn', { id: socket.id, position: initialPos, team });
 
         players[socket.id] = {
           id: socket.id,
@@ -419,6 +419,10 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
             });
             
             ioNamespace.emit('playerDied', { id });
+            
+            if (attackerId && attackerId !== id && players[attackerId]) {
+               ioNamespace.to(attackerId).emit('skycoinsRewarded', { amount: 35, reason: 'Kill Player' });
+            }
           }
           // Broadcast hit to everyone so they can show visual feedback
           ioNamespace.emit('playerHit', { id, damage, knockbackDir, attackerId });
@@ -508,6 +512,10 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
                   let deathMessage = `${target.name} was slain by ${attacker.name}`;
                   broadcastToNearby('chatMessage', { sender: 'System', message: deathMessage }, target.position.x, target.position.z, 22500);
                   broadcastToNearby('playerDied', { id: targetId }, target.position.x, target.position.z, 22500);
+                  
+                  if (targetId !== socket.id) {
+                    socket.emit('skycoinsRewarded', { amount: 35, reason: 'Kill Player' });
+                  }
                 }
                 pendingHits.push({ id: targetId, damage: actualDamage, knockbackDir, attackerId: socket.id, isCrit });
             }
@@ -519,7 +527,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         if (p && p.isDead) {
           p.health = Math.max(100, p.maxHealth || 100);
           p.isDead = false;
-          p.position = mode.getRespawnPosition(p.id, p);
+          p.position = mode.getRespawnPosition(p.id, p, chunkManager, bakedBlocks);
           ioNamespace.emit('playerRespawn', { id: socket.id, position: p.position });
         }
       });
@@ -1115,7 +1123,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         const radius = 0.35;
         const canMoveTo = (tx: number, tz: number, ty: number) => {
           // Prevent mobs from entering protected areas (castles, villages)
-          const protectionEnd = isSkyCastlesMode ? 130 : 110;
+          const protectionEnd = isSkyCastlesMode ? 520 : 110;
           const dxBlue = Math.max(0, Math.abs(tx) - 50);
           const dzBlue = Math.max(0, (isSkyCastlesMode ? 70 : 0) - tz, tz - protectionEnd);
           const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
@@ -1148,8 +1156,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           mob.velocity.y = 0;
         }
 
-        // Apply push directly to position
-        if (pushX !== 0 || pushZ !== 0) {
+        // Apply push directly to position (Bosses like Morvane are immune to pushing)
+        if ((pushX !== 0 || pushZ !== 0) && mob.type !== 'Morvane') {
            const nextPushX = mob.position.x + pushX;
            const nextPushZ = mob.position.z + pushZ;
            if (canMoveTo(nextPushX, mob.position.z, mob.position.y)) mob.position.x = nextPushX;
@@ -1209,7 +1217,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         const blockBelow = getBlockAt(mob.position.x, mob.position.y - 0.05, mob.position.z);
         const legBlock = getBlockAt(mob.position.x, mob.position.y + 0.5, mob.position.z);
         
-        if (legBlock === BLOCK.LAVA || blockBelow === BLOCK.LAVA) {
+        if ((legBlock === BLOCK.LAVA || blockBelow === BLOCK.LAVA) && mob.type !== 'Morvane') {
            mob.health -= 25 * delta;
            if (mob.health <= 0) {
               delete mobs[id];
@@ -1226,8 +1234,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           mob.isGrounded = false;
         }
   
-        // Despawn if fell into void
-        if (mob.position.y < -20) {
+        // Despawn if fell into void (Bosses are immune to void)
+        if (mob.position.y < -20 && mob.type !== 'Morvane') {
           delete mobs[id];
           ioNamespace.emit('mobDespawned', id);
           continue;
@@ -1467,8 +1475,9 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       const isDay = Math.sin(dayTime * Math.PI * 2) > 0;
       
       if (playerIds.length === 0) {
-        // Despawn all mobs if no players
+        // Despawn all normal mobs if no players, but keep bosses like Morvane
         for (const id in mobs) {
+          if (mobs[id].type === 'Morvane') continue;
           delete mobs[id];
           ioNamespace.emit('mobDespawned', id);
         }
