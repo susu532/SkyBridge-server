@@ -5,6 +5,7 @@ import { DungeonDelverMode } from './src/server/modes/DungeonDelverMode';
 import { BattleRoyaleMode } from './src/server/modes/BattleRoyaleMode';
 import { createGameServer } from './src/server/GameServer';
 import express from 'express';
+import cors from 'cors';
 
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -18,10 +19,18 @@ import bakedBlocksData from './data/bakedBlocks.json';
 async function startServer() {
   const app = express();
 
+  app.use(cors({
+    origin: 'https://starplex-io.vercel.app',
+    methods: ['GET', 'POST']
+  }));
+
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
-    cors: { origin: '*' }
+    cors: { 
+      origin: 'https://starplex-io.vercel.app',
+      methods: ['GET', 'POST']
+    }
   });
 
   let db: Database.Database;
