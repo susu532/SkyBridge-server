@@ -479,5 +479,7 @@
   "LIGHTNING_ROD": "#7fbfb6",
   "CANDLE": "#911450",
   "POTTED_AZALEA": "#99cf9e",
-  "TORCH": "#ffa500"
+  "TORCH": "#ffa500",
+  "LAUNCHER": "#aa0000",
+  "CHEST": "#8F6B42"
 }

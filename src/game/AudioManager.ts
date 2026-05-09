@@ -108,7 +108,6 @@ class AudioManager {
     this.loadSound('skeleton_hurt', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/skeleton/hurt1.ogg');
     this.loadSound('skeleton_death', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/skeleton/death.ogg');
     this.loadSound('cow_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/cow/say1.ogg');
-    this.loadSound('pig_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/pig/say1.ogg');
     this.loadSound('sheep_idle', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/sheep/say1.ogg');
     this.loadSound('creeper_fuse', 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.19/assets/minecraft/sounds/mob/creeper/say1.ogg');
   }
@@ -245,6 +244,17 @@ class AudioManager {
       case 'sand': this.play('step_sand', 0.3, pitch); break;
       case 'wood': this.play('step_wood', 0.3, pitch); break;
       default: this.play('step_grass', 0.3, pitch);
+    }
+  }
+
+  public playPositionalStep(surface: string, position: THREE.Vector3) {
+    const pitch = 0.8 + Math.random() * 0.4;
+    switch (surface) {
+      case 'grass': this.playPositional('step_grass', position, 0.3, pitch); break;
+      case 'stone': this.playPositional('step_stone', position, 0.3, pitch); break;
+      case 'sand': this.playPositional('step_sand', position, 0.3, pitch); break;
+      case 'wood': this.playPositional('step_wood', position, 0.3, pitch); break;
+      default: this.playPositional('step_grass', position, 0.3, pitch);
     }
   }
 }

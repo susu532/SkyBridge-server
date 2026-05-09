@@ -216,8 +216,10 @@ export function getCastleBlock(wx: number, wy: number, wz: number, zOffset: numb
                   if (isSkyCastles) {
                     // Trigger spawn at the center of the egg area
                     if (wx === 0 && localZ === 0 && wy === 44 && queuedMobs) {
-                      const worldY = wy + 60;
-                      queuedMobs.push({ type: 'Morvane', pos: new THREE.Vector3(wx + 0.5, worldY, wz + 0.5) });
+                      // Morvane is now managed by the server's slowTick spawner to prevent duplicates
+                      // const worldY = wy + 60;
+                      // const team = zOffset > 0 ? 'blue' : 'red';
+                      // queuedMobs.push({ type: 'Morvane', pos: new THREE.Vector3(wx + 0.5, worldY, wz + 0.5), team } as any);
                     }
                     return BLOCK.AIR;
                   }

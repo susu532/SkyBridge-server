@@ -492,7 +492,11 @@ export enum ItemType {
   LAUNCHER_WALL_Z_POS = 517,
   LAUNCHER_WALL_Z_NEG = 518,
   MINION = 500,
+  CHEST = 519,
+  CHEST_REVERSED = 520,
 };
+
+export const isChest = (type: number) => type === ItemType.CHEST || type === ItemType.ENDER_CHEST || type === ItemType.CHEST_REVERSED;
 
 export interface ItemStack {
   type: ItemType;
@@ -667,7 +671,7 @@ export function getMaxStack(type: ItemType): number {
 
 export class Inventory {
   static OFF_HAND_SLOT = 36;
-  slots: (ItemStack | null)[] = new Array(37).fill(null);
+  slots: (ItemStack | null)[] = [];
   hotbarSize = 9;
 
   damageItem(slotIndex: number, amount: number = 1): boolean {
@@ -692,15 +696,19 @@ export class Inventory {
     return false; // Did not break
   }
 
-  constructor() {
-    // Start with some basic items for testing
-    this.addItem(ItemType.WOOD, 4);
-    this.addItem(ItemType.STONE, 8);
-    this.addItem(ItemType.TORCH, 64);
-    this.addItem(ItemType.LAUNCHER, 64);
-    
-    // Add some SkyBridge items
-    this.addItem(ItemType.ASPECT_OF_THE_END, 1, {
+  constructor(size: number = 37) {
+    this.slots = new Array(size).fill(null);
+    if (size === 37) {
+      // Start with some basic items for testing only for player inventory
+      // Use silent=true to avoid store updates during initialization/render
+      this.addItem(ItemType.WOOD, 4, undefined, true);
+      this.addItem(ItemType.STONE, 8, undefined, true);
+      this.addItem(ItemType.TORCH, 64, undefined, true);
+      this.addItem(ItemType.LAUNCHER, 64, undefined, true);
+      this.addItem(ItemType.CHEST, 64, undefined, true);
+      
+      // Add some SkyBridge items
+      this.addItem(ItemType.ASPECT_OF_THE_END, 1, {
       rarity: Rarity.RARE,
       stats: { damage: 80, strength: 60 },
       description: "Teleport 8 blocks ahead of you and gain +50 Speed for 3 seconds.",
@@ -709,7 +717,7 @@ export class Inventory {
         description: "Teleport 8 blocks ahead of you and gain +50 Speed for 3 seconds.",
         manaCost: 50
       }
-    });
+    }, true);
 
     this.addItem(ItemType.BLUE_STONE, 1, {
       rarity: Rarity.RARE,
@@ -720,7 +728,7 @@ export class Inventory {
         description: "Dash forward with extreme speed.",
         manaCost: 40
       }
-    });
+    }, true);
 
     this.addItem(ItemType.RED_STONE, 1, {
       rarity: Rarity.LEGENDARY,
@@ -732,7 +740,7 @@ export class Inventory {
         manaCost: 100,
         cooldown: 10
       }
-    });
+    }, true);
 
     this.addItem(ItemType.MINION, 1, {
       rarity: Rarity.RARE,
@@ -741,7 +749,8 @@ export class Inventory {
         name: "Automate",
         description: "Generates 1 cobblestone every 10 seconds."
       }
-    });
+    }, true);
+    }
   }
 
   clear() {
@@ -749,9 +758,9 @@ export class Inventory {
     useGameStore.getState().incrementInventoryVersion();
   }
 
-  addItem(type: ItemType, count: number, metadata?: ItemMetadata): number {
+  addItem(type: ItemType, count: number, metadata?: ItemMetadata, silent: boolean = false): number {
     if (type === ItemType.SKYCOIN) {
-      useGameStore.getState().addSkycoins(count);
+      if (!silent) useGameStore.getState().addSkycoins(count);
       return 0;
     }
 
@@ -774,7 +783,7 @@ export class Inventory {
           if (canAdd > 0) {
             this.slots[i] = { ...slot, count: slot.count + canAdd };
             remaining -= canAdd;
-            useGameStore.getState().incrementInventoryVersion();
+            if (!silent) useGameStore.getState().incrementInventoryVersion();
           }
         }
       }
@@ -787,7 +796,7 @@ export class Inventory {
         const countToAdd = Math.min(remaining, maxStack);
         this.slots[i] = { type, count: countToAdd, metadata: finalMetadata };
         remaining -= countToAdd;
-        useGameStore.getState().incrementInventoryVersion();
+        if (!silent) useGameStore.getState().incrementInventoryVersion();
       }
       if (remaining <= 0) return 0;
     }

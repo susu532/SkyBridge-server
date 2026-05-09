@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { ITEM_COLORS } from './Constants';
 
-import { ItemType } from './Inventory';
+import { ItemType, isChest } from './Inventory';
 export const BLOCK = ItemType as any;
+export { isChest };
 
 export const ATLAS_TILES = 32;
 
@@ -924,101 +925,45 @@ export function createTextureAtlas(): THREE.Texture {
      ctx.fillRect(nx, ny, 2, 2);
   }
 
-  ctx.clearRect(0 * size, 11 * size, size, size);
-  ctx.fillStyle = '#FFFFFF44';
-  ctx.fillRect(0 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#FFFFFF88';
-  ctx.strokeRect(0 * size + 1, 11 * size + 1, size - 2, size - 2);
+  // --- GLASS COLORS (Row 11) ---
+  const glassColors = [
+    { name: 'GLASS_WHITE', color: '#FFFFFF' },
+    { name: 'GLASS_ORANGE', color: '#F07613' },
+    { name: 'GLASS_MAGENTA', color: '#BD44B3' },
+    { name: 'GLASS_LIGHT_BLUE', color: '#3AAfd9' },
+    { name: 'GLASS_YELLOW', color: '#F8C627' },
+    { name: 'GLASS_LIME', color: '#70B919' },
+    { name: 'GLASS_PINK', color: '#ED8DAC' },
+    { name: 'GLASS_GRAY', color: '#3E4447' },
+    { name: 'GLASS_LIGHT_GRAY', color: '#8E8E86' },
+    { name: 'GLASS_CYAN', color: '#158991' },
+    { name: 'GLASS_PURPLE', color: '#792AAC' },
+    { name: 'GLASS_BLUE', color: '#35399D' },
+    { name: 'GLASS_BROWN', color: '#724728' },
+    { name: 'GLASS_GREEN', color: '#546D1B' },
+    { name: 'GLASS_RED', color: '#A12722' },
+    { name: 'GLASS_BLACK', color: '#141519' }
+  ];
 
-  ctx.clearRect(1 * size, 11 * size, size, size);
-  ctx.fillStyle = '#F0761344';
-  ctx.fillRect(1 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#F0761388';
-  ctx.strokeRect(1 * size + 1, 11 * size + 1, size - 2, size - 2);
+  glassColors.forEach((gc, i) => {
+    ctx.clearRect(i * size, 11 * size, size, size);
+    // Base transparent color
+    ctx.fillStyle = gc.color + '44'; 
+    ctx.fillRect(i * size, 11 * size, size, size);
+    
+    // Border
+    ctx.strokeStyle = gc.color + '88';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(i * size + 0.5, 11 * size + 0.5, size - 1, size - 1);
+    
+    // Glass glints
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.beginPath();
+    ctx.moveTo(i * size + 4, 11 * size + 4); ctx.lineTo(i * size + 6, 11 * size + 6);
+    ctx.moveTo(i * size + 10, 11 * size + 10); ctx.lineTo(i * size + 12, 11 * size + 12);
+    ctx.stroke();
+  });
 
-  ctx.clearRect(2 * size, 11 * size, size, size);
-  ctx.fillStyle = '#BD44B344';
-  ctx.fillRect(2 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#BD44B388';
-  ctx.strokeRect(2 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(3 * size, 11 * size, size, size);
-  ctx.fillStyle = '#3AAfd944';
-  ctx.fillRect(3 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#3AAfd988';
-  ctx.strokeRect(3 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(4 * size, 11 * size, size, size);
-  ctx.fillStyle = '#F8C62744';
-  ctx.fillRect(4 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#F8C62788';
-  ctx.strokeRect(4 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(5 * size, 11 * size, size, size);
-  ctx.fillStyle = '#70B91944';
-  ctx.fillRect(5 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#70B91988';
-  ctx.strokeRect(5 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(6 * size, 11 * size, size, size);
-  ctx.fillStyle = '#ED8DAC44';
-  ctx.fillRect(6 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#ED8DAC88';
-  ctx.strokeRect(6 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(7 * size, 11 * size, size, size);
-  ctx.fillStyle = '#3E444744';
-  ctx.fillRect(7 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#3E444788';
-  ctx.strokeRect(7 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(8 * size, 11 * size, size, size);
-  ctx.fillStyle = '#8E8E8644';
-  ctx.fillRect(8 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#8E8E8688';
-  ctx.strokeRect(8 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(9 * size, 11 * size, size, size);
-  ctx.fillStyle = '#15899144';
-  ctx.fillRect(9 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#15899188';
-  ctx.strokeRect(9 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(10 * size, 11 * size, size, size);
-  ctx.fillStyle = '#792AAC44';
-  ctx.fillRect(10 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#792AAC88';
-  ctx.strokeRect(10 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(11 * size, 11 * size, size, size);
-  ctx.fillStyle = '#35399D44';
-  ctx.fillRect(11 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#35399D88';
-  ctx.strokeRect(11 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(12 * size, 11 * size, size, size);
-  ctx.fillStyle = '#72472844';
-  ctx.fillRect(12 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#72472888';
-  ctx.strokeRect(12 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(13 * size, 11 * size, size, size);
-  ctx.fillStyle = '#546D1B44';
-  ctx.fillRect(13 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#546D1B88';
-  ctx.strokeRect(13 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(14 * size, 11 * size, size, size);
-  ctx.fillStyle = '#A1272244';
-  ctx.fillRect(14 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#A1272288';
-  ctx.strokeRect(14 * size + 1, 11 * size + 1, size - 2, size - 2);
-
-  ctx.clearRect(15 * size, 11 * size, size, size);
-  ctx.fillStyle = '#14151944';
-  ctx.fillRect(15 * size, 11 * size, size, size);
-  ctx.strokeStyle = '#14151988';
-  ctx.strokeRect(15 * size + 1, 11 * size + 1, size - 2, size - 2);
 
   // --- AUTOMATIC PROCEDURAL TILE GENERATION FOR MISSING TILES ---
   for (const [key, value] of Object.entries(BLOCK)) {
@@ -1197,6 +1142,53 @@ export function createTextureAtlas(): THREE.Texture {
   ctx.fillRect(6 * size, 5 * size, size, size);
   ctx.fillStyle = 'rgba(0, 200, 0, 0.5)';
   for(let i=0; i<10; i++) ctx.fillRect(6 * size + Math.random()*14, 5 * size + Math.random()*14, 2, 2);
+
+  // 0,26: Chest Front (With Latch)
+  drawTile(0, 26, '#8f6b42', '#5a422a'); // Rich warm wood
+  // Metal bands
+  ctx.fillStyle = '#3d3d3d'; // Dark steel bands
+  ctx.fillRect(0 * size, 26 * size + 1, size, 2); // Top band
+  ctx.fillRect(0 * size, 26 * size + 13, size, 2); // Bottom band
+  ctx.fillRect(0 * size + 1, 26 * size, 2, size); // Left band
+  ctx.fillRect(0 * size + 13, 26 * size, 2, size); // Right band
+  // Golden rivets
+  ctx.fillStyle = '#d4af37'; 
+  ctx.fillRect(0 * size + 1, 26 * size + 1, 1, 1);
+  ctx.fillRect(0 * size + 14, 26 * size + 1, 1, 1);
+  ctx.fillRect(0 * size + 1, 26 * size + 14, 1, 1);
+  ctx.fillRect(0 * size + 14, 26 * size + 14, 1, 1);
+  // High-poly look Latch (Only on front)
+  ctx.fillStyle = '#bfbfbf'; // Silver latch base
+  ctx.fillRect(0 * size + 6, 26 * size + 6, 4, 4);
+  ctx.fillStyle = '#1a1a1a'; // Keyhole
+  ctx.fillRect(0 * size + 7.5, 26 * size + 7.5, 1, 2);
+
+  // 1,26: Chest Top
+  drawTile(1, 26, '#8f6b42', '#563e27');
+  ctx.fillStyle = '#3d3d3d';
+  ctx.fillRect(1 * size + 1, 26 * size + 1, size - 2, 2);
+  ctx.fillRect(1 * size + 1, 26 * size + 13, size - 2, 2);
+  ctx.fillRect(1 * size + 1, 26 * size + 1, 2, size - 2);
+  ctx.fillRect(1 * size + 13, 26 * size + 1, 2, size - 2);
+  // rivets
+  ctx.fillStyle = '#d4af37';
+  ctx.fillRect(1 * size + 1, 26 * size + 1, 1, 1);
+  ctx.fillRect(1 * size + 14, 26 * size + 1, 1, 1);
+  ctx.fillRect(1 * size + 1, 26 * size + 14, 1, 1);
+  ctx.fillRect(1 * size + 14, 26 * size + 14, 1, 1);
+
+  // 2,26: Chest Side/Back (No Latch)
+  drawTile(2, 26, '#8f6b42', '#5a422a');
+  ctx.fillStyle = '#3d3d3d';
+  ctx.fillRect(2 * size, 26 * size + 1, size, 2);
+  ctx.fillRect(2 * size, 26 * size + 13, size, 2);
+  ctx.fillRect(2 * size + 1, 26 * size, 2, size);
+  ctx.fillRect(2 * size + 13, 26 * size, 2, size);
+  ctx.fillStyle = '#d4af37';
+  ctx.fillRect(2 * size + 1, 26 * size + 1, 1, 1);
+  ctx.fillRect(2 * size + 14, 26 * size + 1, 1, 1);
+  ctx.fillRect(2 * size + 1, 26 * size + 14, 1, 1);
+  ctx.fillRect(2 * size + 14, 26 * size + 14, 1, 1);
 
   // --- ORES ---
   const drawOreExt = (x: number, y: number, color: string, isDeepslate: boolean, orePattern: number) => {
@@ -1926,6 +1918,8 @@ BLOCK_UVS[BLOCK.GLAZED_TERRACOTTA_GREEN] = [[2,27], [2,27], [2,27], [2,27], [2,2
 BLOCK_UVS[BLOCK.GLAZED_TERRACOTTA_RED] = [[3,27], [3,27], [3,27], [3,27], [3,27], [3,27]];
 BLOCK_UVS[BLOCK.GLAZED_TERRACOTTA_BLACK] = [[4,27], [4,27], [4,27], [4,27], [4,27], [4,27]];
 
+BLOCK_UVS[BLOCK.CHEST] = [[2,26], [2,26], [1,26], [2,3], [0,26], [2,26]];
+BLOCK_UVS[BLOCK.CHEST_REVERSED] = [[2,26], [2,26], [1,26], [2,3], [2,26], [0,26]];
 BLOCK_UVS[BLOCK.WOODEN_PICKAXE] = [[0,28], [0,28], [0,28], [0,28], [0,28], [0,28]];
 BLOCK_UVS[BLOCK.STONE_PICKAXE] = [[1,28], [1,28], [1,28], [1,28], [1,28], [1,28]];
 BLOCK_UVS[BLOCK.IRON_PICKAXE] = [[2,28], [2,28], [2,28], [2,28], [2,28], [2,28]];
@@ -2145,6 +2139,10 @@ IS_CUTOUT[BLOCK.LAUNCHER_WALL_X_POS] = true;
 IS_CUTOUT[BLOCK.LAUNCHER_WALL_X_NEG] = true;
 IS_CUTOUT[BLOCK.LAUNCHER_WALL_Z_POS] = true;
 IS_CUTOUT[BLOCK.LAUNCHER_WALL_Z_NEG] = true;
+
+IS_CUTOUT[BLOCK.CHEST] = true;
+IS_CUTOUT[BLOCK.CHEST_REVERSED] = true;
+IS_CUTOUT[BLOCK.ENDER_CHEST] = true;
 
 export const isCutout = (blockType: number) => {
   return IS_CUTOUT[blockType] || false;

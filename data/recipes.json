@@ -593,5 +593,17 @@
       }
     },
     "is3x3": true
+  },
+  {
+    "input": [
+      "PLANKS", "PLANKS", "PLANKS",
+      "PLANKS", null,     "PLANKS",
+      "PLANKS", "PLANKS", "PLANKS"
+    ],
+    "output": {
+      "type": "CHEST",
+      "count": 1
+    },
+    "is3x3": true
   }
 ]

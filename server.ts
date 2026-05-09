@@ -2,6 +2,7 @@ import { HubMode } from './src/server/modes/HubMode';
 import { SkyBridgeMode } from './src/server/modes/SkyBridgeMode';
 import { SkyCastlesMode } from './src/server/modes/SkyCastlesMode';
 import { DungeonDelverMode } from './src/server/modes/DungeonDelverMode';
+import { BattleRoyaleMode } from './src/server/modes/BattleRoyaleMode';
 import { createGameServer } from './src/server/GameServer';
 import express from 'express';
 
@@ -20,10 +21,7 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
-    cors: { 
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
+    cors: { origin: '*' }
   });
 
   let db: Database.Database;
@@ -76,7 +74,9 @@ async function startServer() {
 
   const activeInstances: Record<string, { id: string, name: string, playerLimit: number, api: any, emptySince?: number }[]> = {};
   
-  // Instance Reaper Loop: Destroy instances that have been empty for > 5 minutes
+  // We will run intervals independently inside GameServer instead of a monolithic loop
+
+  // Background Task Loop: Reaping empty instances (runs every 5 seconds)
   setInterval(() => {
     const now = Date.now();
     for (const baseName in activeInstances) {
@@ -87,7 +87,6 @@ async function startServer() {
           if (!instance.emptySince) {
             instance.emptySince = now;
           } else if (now - instance.emptySince > 5 * 60 * 1000) {
-            // Keep at least 1 instance of each core mode
             if (i > 0 || baseName === 'hub_2') {
               console.log(`Reaping empty instance: ${instance.id}`);
               if (instance.api && instance.api.destroy) instance.api.destroy();
@@ -100,14 +99,15 @@ async function startServer() {
         }
       }
     }
-  }, 60000);
-
+  }, 5000);
+  
   function getModeFactory(baseName: string) {
     if (baseName === 'hub') return new HubMode();
     if (baseName === 'skybridge') return new SkyBridgeMode();
     if (baseName === 'skycastles') return new SkyCastlesMode('/skycastles');
     if (baseName === 'voidtrail') return new SkyCastlesMode('/voidtrail');
     if (baseName === 'dungeondelver') return new DungeonDelverMode();
+    if (baseName === 'battleroyale') return new BattleRoyaleMode();
     return new HubMode();
   }
 
@@ -155,6 +155,7 @@ async function startServer() {
   getOrProvisionServer('skycastles');
   getOrProvisionServer('voidtrail');
   getOrProvisionServer('dungeondelver');
+  getOrProvisionServer('battleroyale');
 
   app.get('/api/matchmake', (req, res) => {
     let mode = (req.query.mode as string) || 'hub';

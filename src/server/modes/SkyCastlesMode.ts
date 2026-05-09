@@ -3,7 +3,6 @@ import { BLOCK, CHUNK_SIZE, WORLD_Y_OFFSET } from '../constants';
 import { ChunkManager } from '../ChunkManager';
 import { getTerrainHeight, getTerrainMinHeight, noise2D, noise3D } from '../../game/TerrainGenerator';
 import { skycastlesBakedBlocks } from '../../game/SkycastlesBakedBlocks';
-import { getGiantMythicalShipBlock } from '../../game/generation/ShipGenerator';
 import { getCastleBlock } from '../../game/generation/SkyCastlesGenerator';
 
 export class SkyCastlesMode implements GameModeInfo {
@@ -16,24 +15,58 @@ export class SkyCastlesMode implements GameModeInfo {
     this.name = name;
   }
 
-  isIndestructible(x: number, y: number, z: number, bakedBlocks: Map<string, number>): boolean {
+  onInit?(server: { 
+    setBlock: (x: number, y: number, z: number, type: number) => void, 
+    spawnMob: (type: string, x: number, y: number, z: number, level?: number, team?: string) => void 
+  }): void {
+    server.spawnMob("Morvane", 0.5, 104, 200.5, 200, "blue");
+    server.spawnMob("Morvane", 0.5, 104, -200.5, 200, "red");
+  }
+
+  isIndestructible(x: number, y: number, z: number, bakedBlocks: Map<string, number>, currentBlock: number = 0): boolean {
     const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
     
-    // TEMPORARILY DISABLED to allow map building and baking:
-    // if (skycastlesBakedBlocks.has(key) && skycastlesBakedBlocks.get(key) !== 0) return true;
-    // if (bakedBlocks.has(key) && bakedBlocks.get(key) !== 0) return true;
+    // Make baked blocks indestructible
+    if (skycastlesBakedBlocks.has(key) && skycastlesBakedBlocks.get(key) !== 0) return true;
     
+    // Make the chests at 5, 65, +-190 unbreakable
+    if (x === 5 && y === 65 && Math.abs(z) === 189) return true;
+
     if (y === -60) return true; // Keep bedrock indestructible
 
-    /* TEMPORARILY DISABLED ship protection for map building
-    const isWithinX = x >= -45 && x <= 45;
-    const shipCenter = 450;
-    const isBlueShip = z >= (shipCenter - 50) && z <= (shipCenter + 100);
-    const isRedShip = z >= -(shipCenter + 100) && z <= -(shipCenter - 50);
-    if (isWithinX && (isBlueShip || isRedShip) && y >= 130) {
-      return true;
+
+    // Huge protective zone on the entire void space from y -60 to 25, limited to between z -70 and 70
+    if (y >= -60 && y <= 25 && z >= -70 && z <= 70) {
+      if (currentBlock !== 0) return true;
     }
-    */
+
+    const absX = Math.abs(x);
+    const absZ = Math.abs(z);
+
+    // 2. The water pool under the ship unbreakable (removed)
+
+    // 3. The stairs of the mountain castle unbreakable
+    if (absX <= 6 && (absZ >= 65 && absZ <= 175)) {
+      const groundY = getTerrainHeight(x, z, true);
+      if (y <= groundY && currentBlock !== 0) return true;
+    }
+
+    // 4. The flanks in the middle void and the tunnels unbreakable
+    // Flanks
+    if (absZ <= 13 && absX <= 15) {
+      const groundY = getTerrainHeight(x, z, true);
+      if (y <= groundY && currentBlock !== 0) return true;
+    }
+    
+    // Tunnels (Main tube and the vertical shafts at absZ=78)
+    if (absX >= 22 && absX <= 42 && absZ <= 315) {
+      if (y <= 24 || (Math.abs(absZ - 78) <= 5 && Math.abs(absX - 32) <= 5)) {
+         // Protect natural terrain blocks so we don't accidentally let them mine the cave walls (1 = stone, 2 = grass, 3 = dirt, 164 = deepslate, 165 = tuff)
+         if (currentBlock === 1 || currentBlock === 2 || currentBlock === 3 || currentBlock === 164 || currentBlock === 165) {
+           return true;
+         }
+      }
+    }
 
     return false;
   }
@@ -51,22 +84,13 @@ export class SkyCastlesMode implements GameModeInfo {
     if (skycastlesBakedBlocks.has(key)) return skycastlesBakedBlocks.get(key)!;
     
     // Check generators
-    if (y >= 130) {
-      if (z >= 200 && z <= 550 && x >= -45 && x <= 45) {
-        const shipBlock = getGiantMythicalShipBlock(x, y, z, true);
-        if (shipBlock !== BLOCK.AIR) return shipBlock;
-      }
-      if (z <= -200 && z >= -550 && x >= -45 && x <= 45) {
-        const shipBlock = getGiantMythicalShipBlock(x, y, z, false);
-        if (shipBlock !== BLOCK.AIR) return shipBlock;
-      }
-      
+    if (y >= 65) {
       // Castle area (approximate, should match SkyCastlesGenerator)
       if (z > 0) {
-        const castleBlock = getCastleBlock(x, y - 120, z, 200, BLOCK.BLUE_STONE, true);
+        const castleBlock = getCastleBlock(x, y - 60, z, 200, BLOCK.BLUE_STONE, true);
         if (castleBlock !== BLOCK.AIR) return castleBlock;
       } else {
-        const castleBlock = getCastleBlock(x, y - 120, z, -200, BLOCK.RED_STONE, true);
+        const castleBlock = getCastleBlock(x, y - 60, z, -200, BLOCK.RED_STONE, true);
         if (castleBlock !== BLOCK.AIR) return castleBlock;
       }
     }
@@ -84,6 +108,9 @@ export class SkyCastlesMode implements GameModeInfo {
     if (isVoid) return BLOCK.AIR;
     if (Math.abs(z) >= 550 || Math.abs(x) > 95) return BLOCK.AIR;
 
+    if (x === 5 && y === 65 && z === 189) return BLOCK.CHEST;
+    if (x === 5 && y === 65 && z === -189) return BLOCK.CHEST_REVERSED;
+
     const groundY = getTerrainHeight(x, z, true);
     if (y >= groundY && y < groundY + 1) return 1; 
     
@@ -96,15 +123,15 @@ export class SkyCastlesMode implements GameModeInfo {
     return BLOCK.AIR;  
   }
 
-  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number} {
-    const rx = (Math.random() - 0.5) * 2;
-    const rz = (Math.random() - 0.5) * 2;
+  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number, yaw?: number} {
     let sideZ = 1;
+    let yaw = 0;
     if (playerState && playerState.team) {
       sideZ = playerState.team === 'red' ? -1 : 1;
     } else {
       sideZ = (playerState && playerState.position && playerState.position.z >= 0) ? 1 : -1;
     }
-    return { x: 1 + rx, y: 114, z: sideZ * 427 + rz };
+    yaw = sideZ === -1 ? Math.PI : 0; 
+    return { x: 0, y: 66, z: sideZ * 195, yaw };
   }
 }

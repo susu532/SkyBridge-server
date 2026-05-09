@@ -105,8 +105,13 @@ class SkyBridgeManager {
 
   effectiveStats: PlayerStats = { ...this.stats };
 
-  setSkills(skills: Record<SkillType, SkillProgress>) {
-    this.skills = skills;
+  setSkills(skills: Record<SkillType, SkillProgress> | Partial<Record<SkillType, SkillProgress>>) {
+    // Merge with defaults to ensure all SkillType keys exist
+    for (const key of Object.values(SkillType)) {
+      if (skills[key]) {
+        this.skills[key] = skills[key] as SkillProgress;
+      }
+    }
     // Recalculate stats based on all levels
     this.stats.defense = 0;
     this.stats.strength = 0;
@@ -226,22 +231,24 @@ class SkyBridgeManager {
   }
 
   private lastStatsPushTime: number = 0;
+  public lastDamageTime: number = 0;
 
   tick(delta: number, inventory: any, hotbarIndex: number) {
     this.effectiveStats = this.getEffectiveStats(inventory, hotbarIndex);
     const effectiveStats = this.effectiveStats;
     
+    const now = performance.now();
+
     // Mana Regeneration (2% of max per second + base 2)
     const manaRegen = (effectiveStats.maxIntelligence * 0.02 + 2) * delta;
     this.stats.intelligence = Math.min(effectiveStats.maxIntelligence, this.stats.intelligence + manaRegen);
 
-    // Health Regeneration (1% of max per second + base 1)
-    if (this.stats.health < effectiveStats.maxHealth) {
+    // Health Regeneration: Process starts 20s after last damage
+    if (this.stats.health < effectiveStats.maxHealth && (now - this.lastDamageTime >= 20000)) {
       const healthRegen = (effectiveStats.maxHealth * 0.01 + 1) * delta;
       this.stats.health = Math.min(effectiveStats.maxHealth, this.stats.health + healthRegen);
     }
 
-    const now = performance.now();
     if (now - this.lastStatsPushTime > 200) { // 5Hz UI update rate
       useGameStore.getState().setPlayerStats({ ...this.effectiveStats, health: this.stats.health, intelligence: this.stats.intelligence });
       this.lastStatsPushTime = now;

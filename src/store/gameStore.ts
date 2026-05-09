@@ -15,6 +15,9 @@ interface GameState {
   currentMode: string;
   setCurrentMode: (mode: string) => void;
 
+  serverId: string;
+  setServerId: (id: string) => void;
+
   skycoins: Record<string, number>;
   getSkycoins: () => number;
   setSkycoins: (amount: number) => void;
@@ -36,6 +39,7 @@ interface GameState {
   // Chat
   chatMessages: { sender: string; message: string }[];
   addChatMessage: (sender: string, message: string) => void;
+  clearChatMessages: () => void;
   
   // Popups
   xpPopups: { id: number; skill: string; amount: number }[];
@@ -61,6 +65,9 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   currentMode: 'hub',
   setCurrentMode: (mode) => set({ currentMode: mode }),
+
+  serverId: '',
+  setServerId: (id) => set({ serverId: id }),
 
   skycoins: {}, 
   getSkycoins: () => {
@@ -101,6 +108,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   addChatMessage: (sender, message) => set((state) => ({
     chatMessages: [...state.chatMessages.slice(-49), { sender, message }]
   })),
+  clearChatMessages: () => set({ chatMessages: [] }),
   
   xpPopups: [],
   addXpPopup: (skill, amount) => {

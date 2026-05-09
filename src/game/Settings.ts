@@ -25,6 +25,7 @@ export interface Keybinds {
 }
 
 export interface GameSettings {
+  username: string;
   renderDistance: number;
   fov: number;
   sensitivity: number;
@@ -62,6 +63,7 @@ export const DEFAULT_KEYBINDS: Keybinds = {
 };
 
 export const DEFAULT_SETTINGS: GameSettings = {
+  username: 'Player_' + Math.floor(Math.random() * 10000),
   renderDistance: 7,
   fov: 75,
   sensitivity: 0.002,
@@ -69,7 +71,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   volume: 0.5,
   showDebug: false,
   performanceMode: false,
-  premiumShaders: true,
+  premiumShaders: false,
   keybinds: { ...DEFAULT_KEYBINDS },
 };
 
@@ -78,10 +80,24 @@ class SettingsManager {
   private listeners: ((settings: GameSettings) => void)[] = [];
 
   constructor() {
+    // Detect mobile/tablet devices
+    const isMobileDevice = typeof window !== 'undefined' && 
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+      ('ontouchstart' in window) || 
+      (navigator.maxTouchPoints > 0));
+    
+    if (isMobileDevice) {
+      this.settings.performanceMode = true;
+      this.settings.premiumShaders = false;
+      this.settings.renderDistance = Math.min(this.settings.renderDistance, 3); // lowering default render distance for mobile
+    }
+
     try {
-      const saved = localStorage.getItem('game_settings');
+      const saved = localStorage.getItem('game_settings_v2');
       if (saved) {
-        this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        // Deep merge to ensure all defaults are present (like keybinds)
+        const parsed = JSON.parse(saved);
+        this.settings = { ...this.settings, ...parsed };
       }
     } catch (e) {
       console.error('Failed to access or parse localStorage settings', e);
@@ -95,7 +111,7 @@ class SettingsManager {
   updateSettings(newSettings: Partial<GameSettings>) {
     this.settings = { ...this.settings, ...newSettings };
     try {
-      localStorage.setItem('game_settings', JSON.stringify(this.settings));
+      localStorage.setItem('game_settings_v2', JSON.stringify(this.settings));
     } catch (e) {
       console.error('Failed to save settings to localStorage', e);
     }

@@ -51,6 +51,10 @@ function getDistToProtected(wx: number, wz: number, isSkyCastles: boolean) {
   const dzBlue = Math.max(0, shelterStart - wz, wz - shelterEnd);
   const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
 
+  if (!isSkyCastles) {
+    return distBlue;
+  }
+
   const dxRed = Math.max(0, Math.abs(wx) - mountainWidth);
   const dzRed = Math.max(0, -shelterEnd - wz, wz - -shelterStart);
   const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
@@ -58,13 +62,23 @@ function getDistToProtected(wx: number, wz: number, isSkyCastles: boolean) {
   return Math.min(distBlue, distRed);
 }
 
+const getTerrainDataCache = new Map<string, any>();
+const CACHE_LIMIT = 200000;
+
 export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = false, isHub: boolean = false, worldSize: number = 800) {
+  const cacheKey = `${wx},${wz},${isSkyCastles ? 1 : 0},${isHub ? 1 : 0}`;
+  let cached = getTerrainDataCache.get(cacheKey);
+  if (cached) return cached;
+
   if (isHub) {
     const distSq = wx * wx + wz * wz;
     if (distSq <= 900) {
-      return { height: 60, biome: biomes.PLAINS, isProtected: true, minHeight: 0 };
+      cached = { height: 60, biome: biomes.PLAINS, isProtected: true, minHeight: 0 };
+    } else {
+      cached = { height: -100, biome: biomes.OCEAN, isProtected: false, minHeight: 0 };
     }
-    return { height: -100, biome: biomes.OCEAN, isProtected: false, minHeight: 0 };
+    getTerrainDataCache.set(cacheKey, cached);
+    return cached;
   }
 
   let distToProtected = getDistToProtected(wx, wz, isSkyCastles);
@@ -77,96 +91,83 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
     let baseH = 64;
     const absZ = Math.abs(wz);
     
-    // Mountain generation for Skycastles
-    if (absZ >= 70 && absZ <= 405) {
-      const absX = Math.abs(wx);
-      
-      // Strict terrain removal around the ship area
-      if (absZ >= 320) { // Keep some buffer
-        if (absZ >= 340) {
-           return { height: -100, biome: biomes.PLAINS, isProtected: false, minHeight: 0 };
+      // Mountain generation for Skycastles
+      if (absZ >= 70 && absZ <= 405) {
+        const absX = Math.abs(wx);
+        
+        const xSlopeStart = 40; 
+        const xSlopeEnd = 100;
+        let xFactor = 1.0;
+        if (absX > xSlopeStart) {
+          xFactor = 1.0 - Math.min(1.0, (absX - xSlopeStart) / (xSlopeEnd - xSlopeStart));
+          xFactor = xFactor * xFactor * (3 - 2 * xFactor); // Smoothstep
         }
-      }
 
-      const xSlopeStart = 40; 
-      const xSlopeEnd = 100;
-      let xFactor = 1.0;
-      if (absX > xSlopeStart) {
-        xFactor = 1.0 - Math.min(1.0, (absX - xSlopeStart) / (xSlopeEnd - xSlopeStart));
-        xFactor = xFactor * xFactor * (3 - 2 * xFactor); // Smoothstep
-      }
+        if (absZ >= 170 && absZ <= 230) {
+           // Peak of the mountain (Castle sits here)
+           baseH = 124; 
+           
+           // Add peak noise to make it less flat
+           const peakNoise = noise2D(wx * 0.04, wz * 0.04);
+           const edgeDist = Math.min(absZ - 170, 230 - absZ, 100 - Math.abs(wx));
+           const peakFactor = Math.max(0, Math.min(1, edgeDist / 20));
+           
+           // Base height is 124, but let's vary it
+           baseH = 118 + Math.floor(peakNoise * 12);
+           
+           // Add sharp ridges
+           const ridgeNoise = Math.abs(noise2D(wx * 0.06, wz * 0.01)) * 10;
+           const ridgeNoise2 = Math.abs(noise2D(wx * 0.01, wz * 0.06)) * 10;
+           baseH += Math.floor(Math.max(ridgeNoise, ridgeNoise2) * (1 - peakFactor * 0.4));
 
-      if (absZ >= 170 && absZ <= 230) {
-         // Peak of the mountain (Castle sits here)
-         baseH = 124; 
-         
-         // Add peak noise to make it less flat
-         const peakNoise = noise2D(wx * 0.04, wz * 0.04);
-         const edgeDist = Math.min(absZ - 170, 230 - absZ, 100 - Math.abs(wx));
-         const peakFactor = Math.max(0, Math.min(1, edgeDist / 20));
-         
-         // Base height is 124, but let's vary it
-         baseH = 118 + Math.floor(peakNoise * 12);
-         
-         // Add sharp ridges
-         const ridgeNoise = Math.abs(noise2D(wx * 0.06, wz * 0.01)) * 10;
-         const ridgeNoise2 = Math.abs(noise2D(wx * 0.01, wz * 0.06)) * 10;
-         baseH += Math.floor(Math.max(ridgeNoise, ridgeNoise2) * (1 - peakFactor * 0.4));
+           // Add crags
+           if (Math.abs(wx) > 20 || absZ < 180 || absZ > 220) {
+               const crag = noise2D(wx * 0.12, wz * 0.12);
+               if (crag > 0.3) baseH += 6;
+               if (crag > 0.6) baseH += 6;
+               if (crag > 0.8) baseH += 10;
+           }
 
-         // Add crags
-         if (Math.abs(wx) > 20 || absZ < 180 || absZ > 220) {
-             const crag = noise2D(wx * 0.12, wz * 0.12);
-             if (crag > 0.3) baseH += 6;
-             if (crag > 0.6) baseH += 6;
-             if (crag > 0.8) baseH += 10;
-         }
+           // Slope down on X
+           baseH = 64 + Math.floor((baseH - 64) * xFactor);
 
-         // Slope down on X
-         baseH = 64 + Math.floor((baseH - 64) * xFactor);
+           // Level out perfectly for the castle footprint
+           // Castle area is defined as worldX [-20, 20] and absZ [180, 220]
+           if (Math.abs(wx) <= 22 && absZ >= 178 && absZ <= 222) {
+               baseH = 124;
+           }
+        } else if (absZ >= 70 && absZ < 170) {
+           // Slope up from bridge
+           const t = (absZ - 70) / 100;
+           
+           if (Math.abs(wx) <= 5) {
+               // Majestic Stairs path (Front side)
+               const stepIndex = Math.floor((absZ - 70) / 1.66); // 60 height over 100 blocks
+               baseH = 64 + stepIndex;
+           } else {
+               // Rugged mountain side
+               const smooth_t = t * t * (3 - 2 * t);
+               baseH = 64 + Math.floor(smooth_t * 60);
+               // Add a bit of natural noise to the slopes
+               const ruggedness = noise2D(wx * 0.08, wz * 0.08) * 8 * smooth_t;
+               const microDetail = noise3D(wx * 0.2, baseH * 0.1, wz * 0.2) * 2;
+               baseH += Math.floor(ruggedness + microDetail);
 
-         // Level out perfectly for the castle footprint
-         // Castle area is defined as worldX [-20, 20] and absZ [180, 220]
-         if (Math.abs(wx) <= 22 && absZ >= 178 && absZ <= 222) {
-             baseH = 124;
-         }
-      } else if (absZ >= 70 && absZ < 170) {
-         // Slope up from bridge
-         const t = (absZ - 70) / 100;
-         
-         if (Math.abs(wx) <= 5) {
-             // Majestic Stairs path
-             const stepIndex = Math.floor((absZ - 70) / 1.66); // 60 height over 100 blocks
-             baseH = 64 + stepIndex;
-         } else {
-             // Rugged mountain side
-             const smooth_t = t * t * (3 - 2 * t);
-             baseH = 64 + Math.floor(smooth_t * 60);
-             // Add a bit of natural noise to the slopes
-             const ruggedness = noise2D(wx * 0.08, wz * 0.08) * 8 * smooth_t;
-             const microDetail = noise3D(wx * 0.2, baseH * 0.1, wz * 0.2) * 2;
-             baseH += Math.floor(ruggedness + microDetail);
-
-             // Slope down on X
-             baseH = 64 + Math.floor((baseH - 64) * xFactor);
-         }
-      } else if (absZ > 230 && absZ <= 300) {
+               // Slope down on X
+               baseH = 64 + Math.floor((baseH - 64) * xFactor);
+           }
+        } else if (absZ > 230 && absZ <= 300) {
          // Slope down to village
          const t = 1 - ((absZ - 230) / 70);
          
-         if (Math.abs(wx) <= 5) {
-             // Majestic Stairs down
-             const stepIndex = Math.floor((absZ - 230) / 1.16) * 1; // 60 height over 70 blocks 
-             baseH = 124 - stepIndex;
-         } else {
-             const smooth_t = t * t * (3 - 2 * t);
-             baseH = 64 + Math.floor(smooth_t * 60);
-             const ruggedness = noise2D(wx * 0.08, wz * 0.08) * 8 * smooth_t;
-             const microDetail = noise3D(wx * 0.2, baseH * 0.1, wz * 0.2) * 2;
-             baseH += Math.floor(ruggedness + microDetail);
+         const smooth_t = t * t * (3 - 2 * t);
+         baseH = 64 + Math.floor(smooth_t * 60);
+         const ruggedness = noise2D(wx * 0.08, wz * 0.08) * 8 * smooth_t;
+         const microDetail = noise3D(wx * 0.2, baseH * 0.1, wz * 0.2) * 2;
+         baseH += Math.floor(ruggedness + microDetail);
 
-             // Slope down on X
-             baseH = 64 + Math.floor((baseH - 64) * xFactor);
-         }
+         // Slope down on X
+         baseH = 64 + Math.floor((baseH - 64) * xFactor);
       }
     }
     const res = { height: baseH, biome: biomes.PLAINS, isProtected: distToProtected === 0, minHeight: 0 };
@@ -185,6 +186,8 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
       if (jagNoise > 0.3) minH += (jagNoise - 0.3) * 15;
       res.minHeight = minH;
     }
+    if (getTerrainDataCache.size >= CACHE_LIMIT) getTerrainDataCache.clear();
+    getTerrainDataCache.set(cacheKey, res);
     return res;
   }
 
@@ -259,6 +262,9 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
     if (jagNoise > 0.3) minH += (jagNoise - 0.3) * 15;
     res.minHeight = minH;
   }
+  
+  if (getTerrainDataCache.size >= CACHE_LIMIT) getTerrainDataCache.clear();
+  getTerrainDataCache.set(cacheKey, res);
   return res;
 }
 

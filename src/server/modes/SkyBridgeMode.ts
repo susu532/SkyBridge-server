@@ -17,7 +17,7 @@ export class SkyBridgeMode implements GameModeInfo {
     
     // Village boundaries (protected area)
     const isBlueVillageZ = z >= 61 && z <= 110;
-    const isRedVillageZ = z >= -110 && z <= -61;
+    const isRedVillageZ = z <= -61 && z >= -110;
     const isVillageX = x >= -50 && x <= 50;
     if (isVillageX && (isBlueVillageZ || isRedVillageZ) && y >= 4) {
       return true;
@@ -61,9 +61,8 @@ export class SkyBridgeMode implements GameModeInfo {
     // Village structures computation (client-side uses this to render buildings)
     const isVillageX = x >= -50 && x <= 50;
     const isBlueVillage = z >= 61 && z <= 110;
-    const isRedVillage = z <= -61 && z >= -110;
     
-    if (isVillageX && (isBlueVillage || isRedVillage) && y >= 5) { // Village blocks are added from wy=5 and up
+    if (isVillageX && isBlueVillage && y >= 5) { // Village blocks are added from wy=5 and up
       const villageBlock = getVillageBlock(x, y, z, isBlueVillage, false);
       if (villageBlock !== BLOCK.AIR) return villageBlock;
     }
@@ -86,8 +85,7 @@ export class SkyBridgeMode implements GameModeInfo {
       const dzRed = Math.max(0, -110 - z, z - 0);
       const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
 
-      const distToProtected = Math.min(distBlue, distRed);
-      const isAreaProtected = distToProtected === 0;
+      const isAreaProtected = distBlue === 0 || distRed === 0;
       
       const isVillageOrCastle = (x >= -50 && x <= 50) && ((z >= 61 && z <= 410) || (z <= -61 && z >= -410));
       const isProtected = isVillageOrCastle || isAreaProtected;
@@ -124,9 +122,9 @@ export class SkyBridgeMode implements GameModeInfo {
   }
 
 
-  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number} {
-    const rx = (Math.random() - 0.5) * 4;
-    const rz = (Math.random() - 0.5) * 4;
+  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number, yaw?: number} {
+    const rx = (Math.random() - 0.5) * 16;
+    const rz = (Math.random() - 0.5) * 16;
     let sideZ = 1;
     if (playerState && playerState.team) {
       sideZ = playerState.team === 'red' ? -1 : 1;

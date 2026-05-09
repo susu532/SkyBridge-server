@@ -6,8 +6,8 @@ export class ChunkManager {
   db: Database.Database;
   
   // Memory efficient chunk storage (sparse)
-  // A single Uint16Array per chunk. 0xFFFF means unchanged!
-  chunks: Map<string, Uint16Array> = new Map();
+  // Instead of Uint16Array, we store a Record of modified blocks per chunk.
+  chunks: Map<string, Record<string, number>> = new Map();
   dirtyChunks: Set<string> = new Set();
   
   cachedBlockChanges: Record<string, number> | null = null;
@@ -25,77 +25,63 @@ export class ChunkManager {
     this.getBlockChangesDict(); // Initialize cache on startup
   }
 
-  getChunkArray(cx: number, cz: number, createIfMissing: boolean = true) {
+  getChunkChanges(cx: number, cz: number, createIfMissing: boolean = true) {
     const key = `${cx},${cz}`;
-    let arr = this.chunks.get(key);
+    let changes = this.chunks.get(key);
     
-    if (!arr && createIfMissing) {
-      // First, try to load from DB
+    if (!changes && createIfMissing) {
+      // Try to load from DB
       try {
         const row = this.getChunk.get(this.worldName, key) as any;
         if (row) {
-          arr = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
-          arr.fill(0xFFFF);
-          const chunkBlocks = JSON.parse(row.data);
-          for (const k of Object.keys(chunkBlocks)) {
-             const parts = k.split(',');
-             const xx = parseInt(parts[0], 10);
-             const yy = parseInt(parts[1], 10);
-             const zz = parseInt(parts[2], 10);
-             
-             const lx = ((xx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-             const lz = ((zz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-             const ly = yy - WORLD_Y_OFFSET;
-             
-             if (ly >= 0 && ly < CHUNK_HEIGHT) {
-                const idx = lx | (lz << 4) | (ly << 8);
-                arr[idx] = chunkBlocks[k];
-             }
-          }
-          this.chunks.set(key, arr);
-          return arr;
+          changes = JSON.parse(row.data) as Record<string, number>;
+          this.chunks.set(key, changes);
+          return changes;
         }
       } catch (err) {
         console.error('Error loading chunk from DB:', err);
       }
 
-      // Create new empty chunk
-      arr = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
-      arr.fill(0xFFFF); // 0xFFFF means unchanged from PCG
-      this.chunks.set(key, arr);
+      // Create new empty chunk changes
+      changes = {};
+      this.chunks.set(key, changes);
     }
-    return arr;
+    return changes;
+  }
+  
+  // For backwards compatibility where getChunkArray was called just to force load
+  getChunkArray(cx: number, cz: number, createIfMissing: boolean = true) {
+    this.getChunkChanges(cx, cz, createIfMissing);
+    return null; // The old code expected an array, but actually only getBlockFromChunk used it. GameServer uses it for isIndestructible.
   }
   
   setBlockInChunk(cx: number, cz: number, lx: number, ly: number, lz: number, type: number) {
     if (ly >= 0 && ly < CHUNK_HEIGHT) {
-      const arr = this.getChunkArray(cx, cz, true)!;
-      const idx = lx | (lz << 4) | (ly << 8);
-      arr[idx] = type;
+      const changes = this.getChunkChanges(cx, cz, true)!;
+      // Use world coordinates for key since it's easier to parse back, as done previously
+      const wx = cx * CHUNK_SIZE + lx;
+      const wz = cz * CHUNK_SIZE + lz;
+      const wy = ly + WORLD_Y_OFFSET;
+      const key = `${wx},${wy},${wz}`;
+      
+      changes[key] = type;
       this.dirtyChunks.add(`${cx},${cz}`);
       
       if (this.cachedBlockChanges) {
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const wy = ly + WORLD_Y_OFFSET;
-        this.cachedBlockChanges[`${wx},${wy},${wz}`] = type;
+        this.cachedBlockChanges[key] = type;
       }
     }
   }
 
   getBlockFromChunk(cx: number, cz: number, lx: number, ly: number, lz: number) {
     if (ly >= 0 && ly < CHUNK_HEIGHT) {
-      const arr = this.getChunkArray(cx, cz, false);
-      if (arr) {
-         const idx = lx | (lz << 4) | (ly << 8);
-         const type = arr[idx];
-         if (type !== 0xFFFF) return type;
-      } else if (this.cachedBlockChanges) {
+      const changes = this.getChunkChanges(cx, cz, false);
+      if (changes) {
          const wx = cx * CHUNK_SIZE + lx;
          const wz = cz * CHUNK_SIZE + lz;
          const wy = ly + WORLD_Y_OFFSET;
-         const val = this.cachedBlockChanges[`${wx},${wy},${wz}`];
-         if (val !== undefined) return val;
+         const key = `${wx},${wy},${wz}`;
+         if (changes[key] !== undefined) return changes[key];
       }
     }
     return undefined;
@@ -111,34 +97,21 @@ export class ChunkManager {
     if (this.dirtyChunks.size === 0) return 0;
     
     let savedCount = 0;
+    const CHUNK_SAVE_LIMIT = 50; // Increased limit because saving is much faster now
+    const chunksArray = Array.from(this.dirtyChunks).slice(0, CHUNK_SAVE_LIMIT);
+    
     try {
       const saveTransaction = this.db.transaction((wName: string, chunksToSave: string[]) => {
         for (const chunkId of chunksToSave) {
-          const arr = this.chunks.get(chunkId);
-          if (arr) {
-            const [cxStr, czStr] = chunkId.split(',');
-            const cx = parseInt(cxStr, 10);
-            const cz = parseInt(czStr, 10);
-            
-            const chunkBlocks: Record<string, number> = {};
-            for (let i = 0; i < arr.length; i++) {
-              if (arr[i] !== 0xFFFF) {
-                const ly = Math.floor(i / 256);
-                const lz = Math.floor((i % 256) / 16);
-                const lx = i % 16;
-                const wx = cx * CHUNK_SIZE + lx;
-                const wz = cz * CHUNK_SIZE + lz;
-                const wy = ly + WORLD_Y_OFFSET;
-                chunkBlocks[`${wx},${wy},${wz}`] = arr[i];
-              }
-            }
-            this.insertChunk.run(wName, chunkId, JSON.stringify(chunkBlocks));
+          const changes = this.chunks.get(chunkId);
+          if (changes) {
+            this.insertChunk.run(wName, chunkId, JSON.stringify(changes));
             savedCount++;
           }
+          this.dirtyChunks.delete(chunkId);
         }
       });
-      saveTransaction(this.worldName, Array.from(this.dirtyChunks));
-      this.dirtyChunks.clear();
+      saveTransaction(this.worldName, chunksArray);
     } catch (err) {
       console.error('Error saving chunks to DB:', err);
     }
@@ -175,11 +148,23 @@ export class ChunkManager {
     }
   }
 
+  resetWorld() {
+    this.chunks.clear();
+    this.dirtyChunks.clear();
+    this.cachedBlockChanges = null;
+    try {
+      const stmt = this.db.prepare(`DELETE FROM chunk_data WHERE world = ?`);
+      stmt.run(this.worldName);
+      console.log(`[${this.worldName}] World has been completely reset.`);
+    } catch (e) {
+      console.error('Error resetting world map:', e);
+    }
+  }
+
   getBlockChangesDict() {
     if (this.cachedBlockChanges === null) {
       this.cachedBlockChanges = {};
       
-      // First, load from SQLite for the persistent state
       try {
         const rows = this.getAllChunks.all(this.worldName) as any[];
         for (const row of rows) {
@@ -192,26 +177,7 @@ export class ChunkManager {
         console.error('Error fetching chunk dict from DB:', err);
       }
 
-      // Then, override with any dirty/unsaved chunks currently in memory
-      for (const chunkId of this.dirtyChunks) {
-        const arr = this.chunks.get(chunkId);
-        if (arr) {
-          const [cxStr, czStr] = chunkId.split(',');
-          const cx = parseInt(cxStr, 10);
-          const cz = parseInt(czStr, 10);
-          for (let i = 0; i < arr.length; i++) {
-            if (arr[i] !== 0xFFFF) {
-              const ly = Math.floor(i / 256);
-              const lz = Math.floor((i % 256) / 16);
-              const lx = i % 16;
-              const wx = cx * CHUNK_SIZE + lx;
-              const wz = cz * CHUNK_SIZE + lz;
-              const wy = ly + WORLD_Y_OFFSET;
-              this.cachedBlockChanges[`${wx},${wy},${wz}`] = arr[i];
-            }
-          }
-        }
-      }
+      // Memory override not needed initially since this runs in constructor
     }
     return this.cachedBlockChanges;
   }

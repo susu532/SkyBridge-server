@@ -10,6 +10,7 @@ interface UIState {
   isLocked: boolean;
   isServerJoinOpen: boolean;
   isLaunchMenuOpen: boolean;
+  isChestOpen: boolean;
   isHUDVisible: boolean;
   currentNPC: NPC | null;
   setInventoryOpen: (open: boolean) => void;
@@ -20,6 +21,7 @@ interface UIState {
   setLocked: (locked: boolean) => void;
   setServerJoinOpen: (open: boolean) => void;
   setLaunchMenuOpen: (open: boolean) => void;
+  setChestOpen: (open: boolean) => void;
   setHUDVisible: (visible: boolean) => void;
   setCurrentNPC: (npc: NPC | null) => void;
 }
@@ -35,6 +37,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [isLocked, setLocked] = useState(false);
   const [isServerJoinOpen, setServerJoinOpen] = useState(false);
   const [isLaunchMenuOpen, setLaunchMenuOpen] = useState(false);
+  const [isChestOpen, setChestOpen] = useState(false);
   const [isHUDVisible, setHUDVisible] = useState(true);
   const [currentNPC, setCurrentNPC] = useState<NPC | null>(null);
 
@@ -48,6 +51,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       isLocked, setLocked,
       isServerJoinOpen, setServerJoinOpen,
       isLaunchMenuOpen, setLaunchMenuOpen,
+      isChestOpen, setChestOpen,
       isHUDVisible, setHUDVisible,
       currentNPC, setCurrentNPC
     }}>

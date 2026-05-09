@@ -65,9 +65,9 @@ export class HubMode implements GameModeInfo {
     return BLOCK.AIR;
   }
 
-  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number} {
-    const rx = (Math.random() - 0.5) * 2;
-    const rz = (Math.random() - 0.5) * 2;
+  getRespawnPosition(playerId: string, playerState?: any, chunkManager?: ChunkManager, bakedBlocks?: Map<string, number>): {x: number, y: number, z: number, yaw?: number} {
+    const rx = (Math.random() - 0.5) * 12;
+    const rz = (Math.random() - 0.5) * 12;
     return { x: 0.5 + rx, y: 7.5, z: 0.5 + rz };
   }
 }
