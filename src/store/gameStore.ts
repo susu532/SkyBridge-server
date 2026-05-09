@@ -18,6 +18,12 @@ interface GameState {
   serverId: string;
   setServerId: (id: string) => void;
 
+  gameStartTime: number;
+  setGameStartTime: (time: number) => void;
+
+  isMapLoading: boolean;
+  setIsMapLoading: (isLoading: boolean) => void;
+
   skycoins: Record<string, number>;
   getSkycoins: () => number;
   setSkycoins: (amount: number) => void;
@@ -68,6 +74,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   serverId: '',
   setServerId: (id) => set({ serverId: id }),
+
+  gameStartTime: 0,
+  setGameStartTime: (time) => set({ gameStartTime: time }),
+
+  isMapLoading: false,
+  setIsMapLoading: (isLoading) => set({ isMapLoading: isLoading }),
 
   skycoins: {}, 
   getSkycoins: () => {

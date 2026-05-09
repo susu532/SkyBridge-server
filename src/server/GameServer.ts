@@ -526,6 +526,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       mobs,
       minions,
       dayTime,
+      gameStartTime, // added
       npcs,
     });
     
@@ -1339,6 +1340,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
   let emptyRoomSince: number | null = null;
   let hasSetEndgameMessage = false;
   let hasBeenReset = false;
+  let gameStartTime = Date.now();
+  let lastOvertimeDamageTick = 0;
 
   function resetRoom() {
     gameState = "playing";
@@ -1346,6 +1349,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
     emptyRoomSince = null;
     hasSetEndgameMessage = false;
     dayTime = 0;
+    gameStartTime = Date.now();
     morvaneDead.red = false;
     morvaneDead.blue = false;
 
@@ -1363,7 +1367,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       spawnMob("Morvane", 0.5, 104, -200.5, 200, "red");
     }
 
-    ioNamespace.emit("entitiesReset", { mobs, droppedItems });
+    ioNamespace.emit("entitiesReset", { mobs, droppedItems, gameStartTime });
 
     // Re-initialize players
     const oldBlue: string[] = [];
@@ -1604,6 +1608,73 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           p.health = Math.min(p.maxHealth || 100, p.health + healthRegen);
           pendingPlayerUpdates.add(id); // Send updated health to clients
           numPlayersRegen++;
+        }
+      }
+    }
+
+    // 20 Minute Overtime rules for Sky Castles
+    if (isSkyCastlesMode && now - gameStartTime >= 20 * 60 * 1000) {
+      if (now - lastOvertimeDamageTick >= 1000) {
+        lastOvertimeDamageTick = now;
+        
+        // Morvane takes 100 damage/sec
+        for (const mId in mobs) {
+          const mob = mobs[mId];
+          if (mob.type === "Morvane") {
+            mob.health -= 100;
+            if (mob.health <= 0) {
+              if (mob.team) {
+                morvaneDead[mob.team] = true;
+                handleMorvaneDeath(mob.team);
+              }
+              ioNamespace.emit("mobDespawned", mId);
+              delete mobs[mId];
+              mobBuffers.delete(mId);
+            } else {
+              pendingMobHits.push({
+                id: mId,
+                damage: 100,
+                knockbackDir: { x: 0, y: 0, z: 0 },
+                isCrit: true,
+                attackerId: "system",
+                position: { x: mob.position.x, z: mob.position.z },
+              });
+            }
+          }
+        }
+        
+        // Players entering enemy's castle taking 5 damage/sec
+        for (const pId in players) {
+          const p = players[pId];
+          if (!p || p.isDead) continue;
+          
+          let isInEnemyBase = false;
+          if (p.team === "red" && p.position.z > 70) isInEnemyBase = true;
+          if (p.team === "blue" && p.position.z < -70) isInEnemyBase = true;
+          
+          if (isInEnemyBase) {
+            p.health -= 5;
+            p.lastDamageTime = now;
+            pendingPlayerUpdates.add(pId);
+            
+            pendingHits.push({
+              id: pId,
+              damage: 5,
+              knockbackDir: { x: 0, y: 0, z: 0 },
+              isCrit: false,
+              attackerId: "system",
+              position: { x: p.position.x, z: p.position.z },
+            });
+            
+            if (p.health <= 0) {
+               p.isDead = true;
+               ioNamespace.emit("playerDied", {
+                 id: pId,
+                 killedBy: "Castle Defenses",
+                 respawnTime: 5000,
+               });
+            }
+          }
         }
       }
     }
