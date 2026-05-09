@@ -528,6 +528,10 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       dayTime,
       npcs,
     });
+    
+    if (lastSkyCastlesSyncJSON) {
+      socket.emit("skyCastlesSync", JSON.parse(lastSkyCastlesSyncJSON));
+    }
 
     // Handle player join
     socket.on("join", (data) => {
@@ -1142,6 +1146,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           ioNamespace.emit("chatMessage", {
             sender: player.name,
             message: trimmed,
+            team: player.team,
           });
         } else {
           // Send a message back to the sender
@@ -2299,6 +2304,14 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         blueMax = 5000,
         redHp = 0,
         redMax = 5000;
+        
+      let redPlayersCount = 0;
+      let bluePlayersCount = 0;
+      for (const id in players) {
+        if (players[id].team === "red") redPlayersCount++;
+        if (players[id].team === "blue") bluePlayersCount++;
+      }
+
       for (const mId in mobs) {
         const m = mobs[mId];
         if (m.type === "Morvane") {
@@ -2323,6 +2336,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         blueMax,
         gameState,
         timeToRestart,
+        redPlayers: redPlayersCount,
+        bluePlayers: bluePlayersCount
       };
       const syncStr = JSON.stringify(syncData);
       if (syncStr !== lastSkyCastlesSyncJSON) {

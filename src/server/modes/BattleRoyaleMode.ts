@@ -52,6 +52,6 @@ export class BattleRoyaleMode implements GameModeInfo {
   ): { x: number; y: number; z: number; yaw?: number } {
     const rx = (Math.random() - 0.5) * 200;
     const rz = (Math.random() - 0.5) * 200;
-    return { x: rx, y: 350, z: rz, yaw: 0 };
+    return { x: rx, y: 100, z: rz, yaw: 0 };
   }
 }

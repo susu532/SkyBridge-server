@@ -37,8 +37,8 @@ interface GameState {
   setPlayerSkills: (skills: Record<string, any>) => void;
   
   // Chat
-  chatMessages: { sender: string; message: string }[];
-  addChatMessage: (sender: string, message: string) => void;
+  chatMessages: { sender: string; message: string; team?: string }[];
+  addChatMessage: (sender: string, message: string, team?: string) => void;
   clearChatMessages: () => void;
   
   // Popups
@@ -105,8 +105,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPlayerSkills: (skills: Record<string, any>) => set({ playerSkills: skills }),
   
   chatMessages: [],
-  addChatMessage: (sender, message) => set((state) => ({
-    chatMessages: [...state.chatMessages.slice(-49), { sender, message }]
+  addChatMessage: (sender, message, team) => set((state) => ({
+    chatMessages: [...state.chatMessages.slice(-49), { sender, message, team }]
   })),
   clearChatMessages: () => set({ chatMessages: [] }),
   
