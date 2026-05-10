@@ -151,8 +151,8 @@
       ]
     },
     {
-      "id": "hub_npc_v",
-      "name": "Voidtrail",
+      "id": "hub_npc_br",
+      "name": "Battle Royale",
       "position": {
         "x": -6,
         "y": 1,
@@ -705,5 +705,5 @@
       ]
     }
   ],
-  "voidtrail": []
+  "battleroyale": []
 }

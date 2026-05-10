@@ -23,8 +23,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
   const isHubMode = mode.name.startsWith("/hub");
   const namespacePrefix = mode.name;
   const worldName = namespacePrefix.replace("/", "");
-  const isSkyCastlesMode =
-    mode.name.startsWith("/skycastles") || mode.name.startsWith("/voidtrail");
+  const isSkyCastlesMode = mode.name.startsWith("/skycastles");
   // Spatial Hash definitions (reused to prevent GC thrashing)
   const CELL_SIZE = 16;
   const PLAYER_CELL_SIZE = 25;
@@ -230,6 +229,17 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
 
   // Indestructible blocks (baked builds, bedrock, castles, villages)
   function isIndestructible(x: number, y: number, z: number): boolean {
+    const wx = Math.floor(x);
+    const wy = Math.floor(y);
+    const wz = Math.floor(z);
+    const key = `${wx},${wy},${wz}`;
+    const changes = chunkManager.getBlockChangesDict();
+    
+    // If a player placed this block, it must be breakable
+    if (changes[key] !== undefined && changes[key] > 0) {
+      return false;
+    }
+
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
@@ -518,6 +528,10 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
   ioNamespace.on("connection", (socket) => {
     console.log("Player connected:", socket.id);
 
+    if (Object.keys(players).length === 0 && isSkyCastlesMode) {
+      gameStartTime = Date.now();
+    }
+
     // Send current state to new player
     socket.emit("init", {
       players,
@@ -538,7 +552,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
     socket.on("join", (data) => {
       let team = null;
 
-      if (!isHubMode) {
+      if (mode.name.startsWith("/skycastles")) {
         let b = 0;
         let r = 0;
         Object.values(players).forEach((p) => {
@@ -598,6 +612,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         offHandItem: data.offHandItem || 0,
         team: team,
         lastRespawnTime: Date.now(),
+        kills: 0,
+        deaths: 0,
       };
       broadcastToNearby(
         "playerJoined",
@@ -607,6 +623,10 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         22500,
         socket.id,
       );
+      ioNamespace.emit("chatMessage", {
+        sender: "System",
+        message: `${finalName} joined the game`,
+      });
     });
 
     socket.on("requestPlayerInfo", (targetId) => {
@@ -651,6 +671,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
         players[id].lastDamageTime = Date.now();
         if (players[id].health <= 0 && !players[id].isDead) {
           players[id].isDead = true;
+          players[id].deaths = (players[id].deaths || 0) + 1;
 
           const attackerName = players[attackerId]
             ? players[attackerId].name
@@ -658,13 +679,26 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           let deathMessage = `${players[id].name} died`;
           if (reason) {
             deathMessage = `${players[id].name} ${reason}`;
-          } else if (id !== attackerId) {
+          } else if (id !== attackerId && players[attackerId]) {
             deathMessage = `${players[id].name} was slain by ${attackerName}`;
+            players[attackerId].kills = (players[attackerId].kills || 0) + 1;
+            ioNamespace.emit("playerStatsUpdate", { 
+              id: attackerId, 
+              kills: players[attackerId].kills, 
+              deaths: players[attackerId].deaths 
+            });
+            pendingPlayerUpdates.add(attackerId);
           }
 
           ioNamespace.emit("chatMessage", {
             sender: "System",
             message: deathMessage,
+          });
+
+          ioNamespace.emit("playerStatsUpdate", { 
+            id: id, 
+            kills: players[id].kills, 
+            deaths: players[id].deaths 
           });
 
           broadcastToNearby(
@@ -751,8 +785,8 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       if (!attacker) return;
 
       const now = Date.now();
-      if (attacker.lastAttackTime && now - attacker.lastAttackTime < 250)
-        return; // Max 4 attacks per second
+      if (attacker.lastAttackTime && now - attacker.lastAttackTime < 220)
+        return; // Max ~4.5 attacks per second over network to account for jitter
       attacker.lastAttackTime = now;
 
       // Base combat calculation
@@ -789,11 +823,23 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       if (isMob) {
         const mob = mobs[targetId];
         if (mob && knockbackDir) {
-          const dx = attacker.position.x - mob.position.x;
-          const dy = attacker.position.y - mob.position.y;
-          const dz = attacker.position.z - mob.position.z;
-          const maxDistSquared = mob.type === "Morvane" ? 2500 : 100;
-          if (dx * dx + dy * dy + dz * dz > maxDistSquared) return; // Validation
+          const mobWidth = mob.type === "Morvane" ? 3.0 : 0.6;
+          const mobHeight = mob.type === "Morvane" ? 9.0 : 1.8;
+          let dx = Math.abs(attacker.position.x - mob.position.x) - mobWidth / 2;
+          let dy = 0;
+          if (attacker.position.y > mob.position.y + mobHeight) {
+            dy = attacker.position.y - (mob.position.y + mobHeight);
+          } else if (attacker.position.y < mob.position.y) {
+            dy = mob.position.y - attacker.position.y;
+          }
+          let dz = Math.abs(attacker.position.z - mob.position.z) - mobWidth / 2;
+          if (dx < 0) dx = 0;
+          if (dy < 0) dy = 0;
+          if (dz < 0) dz = 0;
+
+          const distSq = dx * dx + dy * dy + dz * dz;
+          const maxDistSquared = mob.type === "Morvane" ? 49 : 64; // Relaxed validation to prevent jitter from false rejections
+          if (distSq > maxDistSquared) return; // Validation
 
           if (mob.team && attacker.team && mob.team === attacker.team) return;
 
@@ -861,6 +907,21 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           if (target.health < 0) target.health = 0;
           if (target.health === 0 && !target.isDead) {
             target.isDead = true;
+            target.deaths = (target.deaths || 0) + 1;
+            attacker.kills = (attacker.kills || 0) + 1;
+            pendingPlayerUpdates.add(socket.id);
+            
+            ioNamespace.emit("playerStatsUpdate", { 
+              id: socket.id, 
+              kills: attacker.kills, 
+              deaths: attacker.deaths 
+            });
+            ioNamespace.emit("playerStatsUpdate", { 
+              id: targetId, 
+              kills: target.kills, 
+              deaths: target.deaths 
+            });
+
             let deathMessage = `${target.name} was slain by ${attacker.name}`;
             ioNamespace.emit("chatMessage", {
               sender: "System",
@@ -1312,14 +1373,14 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       console.log("Player disconnected:", socket.id);
       const p = players[socket.id];
       if (p) {
-        broadcastToNearby(
-          "playerLeft",
-          socket.id,
-          p.position.x,
-          p.position.z,
-          22500,
-          null,
-        );
+        // Broadcast left globally to prevent ghost players, since a player disconnected 
+        // from a different chunk might still be rendered for players out of broadcastToNearby range.
+        ioNamespace.emit("playerLeft", socket.id);
+        
+        ioNamespace.emit("chatMessage", {
+          sender: "System",
+          message: `${p.name} left the game`,
+        });
       }
       delete players[socket.id];
       pendingPlayerUpdates.delete(socket.id);
@@ -1349,6 +1410,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
     emptyRoomSince = null;
     hasSetEndgameMessage = false;
     dayTime = 0;
+    ioNamespace.emit("timeUpdate", { dayTime });
     gameStartTime = Date.now();
     morvaneDead.red = false;
     morvaneDead.blue = false;
@@ -1642,40 +1704,6 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
             }
           }
         }
-        
-        // Players entering enemy's castle taking 5 damage/sec
-        for (const pId in players) {
-          const p = players[pId];
-          if (!p || p.isDead) continue;
-          
-          let isInEnemyBase = false;
-          if (p.team === "red" && p.position.z > 70) isInEnemyBase = true;
-          if (p.team === "blue" && p.position.z < -70) isInEnemyBase = true;
-          
-          if (isInEnemyBase) {
-            p.health -= 5;
-            p.lastDamageTime = now;
-            pendingPlayerUpdates.add(pId);
-            
-            pendingHits.push({
-              id: pId,
-              damage: 5,
-              knockbackDir: { x: 0, y: 0, z: 0 },
-              isCrit: false,
-              attackerId: "system",
-              position: { x: p.position.x, z: p.position.z },
-            });
-            
-            if (p.health <= 0) {
-               p.isDead = true;
-               ioNamespace.emit("playerDied", {
-                 id: pId,
-                 killedBy: "Castle Defenses",
-                 respawnTime: 5000,
-               });
-            }
-          }
-        }
       }
     }
 
@@ -1695,6 +1723,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
           if (p.isGrounded) stateMask |= 32;
           if (p.isBlocking) stateMask |= 64;
           if (p.isGliding) stateMask |= 128;
+          if (Date.now() - (p.lastRespawnTime || 0) < 5000) stateMask |= 256;
 
           let buf = playerBuffers.get(id);
           if (!buf) {

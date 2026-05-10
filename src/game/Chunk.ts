@@ -551,6 +551,13 @@ export class Chunk {
     for (let x = 0; x < CHUNK_SIZE; x++) {
       for (let y = 0; y < CHUNK_HEIGHT; y++) {
         for (let z = 0; z < CHUNK_SIZE; z++) {
+          iterations++;
+          if (iterations > 6000 && performance.now() - startTime > 3) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+            startTime = performance.now();
+            iterations = 0;
+          }
+
           const type = this.blocks[x | (z << 4) | (y << 8)];
           if (type === BLOCK.AIR) continue;
           

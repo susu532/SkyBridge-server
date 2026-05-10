@@ -55,6 +55,13 @@ interface GameState {
   levelUpPopups: { id: number; skill: string; level: number }[];
   addLevelUpPopup: (skill: string, level: number) => void;
   removeLevelUpPopup: (id: number) => void;
+
+  leaderboard: Record<string, { id: string, name: string, team?: string, kills: number, deaths: number }>;
+  showLeaderboard: boolean;
+  setShowLeaderboard: (show: boolean) => void;
+  setLeaderboardPlayer: (id: string, name: string, team: string | undefined, kills: number, deaths: number) => void;
+  updateLeaderboardStats: (id: string, kills: number, deaths: number) => void;
+  removeLeaderboardPlayer: (id: string) => void;
 }
 
 let messageIdCounter = 0;
@@ -141,4 +148,29 @@ export const useGameStore = create<GameState>((set, get) => ({
     }, 5000);
   },
   removeLevelUpPopup: (id) => set((state) => ({ levelUpPopups: state.levelUpPopups.filter(p => p.id !== id) })),
+
+  leaderboard: {},
+  showLeaderboard: false,
+  setShowLeaderboard: (show) => set({ showLeaderboard: show }),
+  setLeaderboardPlayer: (id, name, team, kills, deaths) => set((state) => ({
+    leaderboard: {
+      ...state.leaderboard,
+      [id]: { id, name, team, kills, deaths }
+    }
+  })),
+  updateLeaderboardStats: (id, kills, deaths) => set((state) => {
+    const p = state.leaderboard[id];
+    if (!p) return state;
+    return {
+      leaderboard: {
+        ...state.leaderboard,
+        [id]: { ...p, kills, deaths }
+      }
+    };
+  }),
+  removeLeaderboardPlayer: (id) => set((state) => {
+    const newLb = { ...state.leaderboard };
+    delete newLb[id];
+    return { leaderboard: newLb };
+  })
 }));

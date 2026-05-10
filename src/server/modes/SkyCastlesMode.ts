@@ -98,14 +98,30 @@ export class SkyCastlesMode implements GameModeInfo {
     const isBlueSide = z >= 70;
     const isRedSide = z <= -70;
     const isVoid = !isBlueSide && !isRedSide;
-    const isBridge = isVoid && x >= -8 && x <= 8;
 
-    if (isBridge) {
-      if (y === 0 || (y === 1 && (x === -8 || x === 8))) return 1;
-      return BLOCK.AIR;
+    // "add 2 chests on top of the top flank plateform in the mid"
+    // Also ensuring there's a platform underneath them
+    if (y === 65 && Math.abs(x) === 14 && z === 0) return Math.abs(x) === 14 ? (x > 0 ? BLOCK.CHEST_REVERSED : BLOCK.CHEST) : BLOCK.CHEST;
+    if (y === 64 && Math.abs(x) >= 13 && Math.abs(x) <= 15 && Math.abs(z) <= 2) return BLOCK.PLANKS;
+
+    // "add a small ship behind the mountain with a chest on it" (Blue side, Z=250)
+    if (z >= 246 && z <= 254 && Math.abs(x) <= 2) {
+        const shipGroundY = 46; // The ground is around 45 here
+        if (y === shipGroundY) return BLOCK.DARK_OAK_PLANKS;
+        if (y === shipGroundY + 1) {
+            if (x === 0 && z === 250) return BLOCK.CHEST;
+            if (Math.abs(x) === 2 || z === 246 || z === 254) return BLOCK.WOOD;
+            if (x === 0 && z === 252) return BLOCK.SPRUCE_LOG; // mast
+            return BLOCK.AIR;
+        }
+        if (y >= shipGroundY + 2 && y <= shipGroundY + 5) {
+            if (x === 0 && z === 252) return BLOCK.SPRUCE_LOG; // mast
+            if (y >= shipGroundY + 3 && Math.abs(x) <= 1 && Math.abs(z - 252) <= 1 && !(x === 0 && z === 252)) return BLOCK.WOOL_WHITE; // sail
+        }
     }
 
     if (isVoid) return BLOCK.AIR;
+
     if (Math.abs(z) >= 550 || Math.abs(x) > 95) return BLOCK.AIR;
 
     if (x === 5 && y === 65 && z === 189) return BLOCK.CHEST;
