@@ -31,6 +31,14 @@ export class SkyCastlesMode implements GameModeInfo {
     
     // Make the chests at 5, 65, +-190 unbreakable
     if (x === 5 && y === 65 && Math.abs(z) === 189) return true;
+    
+    // Mid void chests and platforms
+    if ((y === 16 || y === 15) && x === 0 && (z === 10 || z === -9)) return true;
+
+    // Small ships unbreakable
+    if (Math.abs(x) <= 3 && y >= 8 && y <= 18) {
+      if (Math.abs(Math.abs(z) - 310) <= 6) return true;
+    }
 
     if (y === -60) return true; // Keep bedrock indestructible
 
@@ -72,6 +80,72 @@ export class SkyCastlesMode implements GameModeInfo {
   }
 
   getBlockAt(x: number, y: number, z: number, chunkManager: ChunkManager, bakedBlocks: Map<string, number>): number {
+    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+    if (bakedBlocks.has(key)) return bakedBlocks.get(key)!;
+
+    // Mid void chests
+    if (y === 16 && x === 0 && z === 10) return BLOCK.CHEST;
+    if (y === 16 && x === 0 && z === -9) return BLOCK.CHEST_REVERSED;
+    if (y === 15 && x === 0 && (z === 10 || z === -9)) return BLOCK.PLANKS;
+
+    // Small ships
+    const centerZ = z >= 0 ? 310 : -310;
+    const isShip = Math.abs(z - centerZ) <= 8 && Math.abs(x) <= 3;
+    if (isShip) {
+        const shipGroundY = 8;
+        const dz = (z - centerZ) * (z >= 0 ? -1 : 1); // Flipped dz for opposite rotation (facing center)
+        const ax = Math.abs(x);
+        
+        // Floor
+        if (y === shipGroundY) {
+            if (ax === 0 && dz >= -5 && dz <= 5) return BLOCK.DARK_OAK_PLANKS;
+            if (ax === 1 && dz >= -4 && dz <= 4) return BLOCK.DARK_OAK_PLANKS;
+            if (ax === 2 && dz >= -2 && dz <= 2) return BLOCK.DARK_OAK_PLANKS;
+        }
+        
+        // Walls
+        if (y === shipGroundY + 1) {
+            if (x === 0 && dz >= 6 && dz <= 8) return BLOCK.SPRUCE_LOG; // Bowsprit
+            if (ax === 2 && dz >= -2 && dz <= 2) return BLOCK.WOOD;
+            if (ax === 1 && (dz === 3 || dz === 4 || dz === 5)) return BLOCK.WOOD;
+            if (ax === 2 && dz === 3) return BLOCK.WOOD;
+            if (ax === 1 && (dz === -3 || dz === -4)) return BLOCK.WOOD;
+            if (ax === 0 && dz === -5) return BLOCK.WOOD;
+            
+            // Stern deck
+            if (ax <= 1 && dz <= -3 && dz >= -5) return BLOCK.DARK_OAK_PLANKS;
+            
+            // Chest - moved to dz = -1 (near mast at dz=0)
+            if (x === 0 && dz === -1) return (z >= 0 ? BLOCK.CHEST_REVERSED : BLOCK.CHEST);
+        }
+        
+        // Stern raised part
+        if (y === shipGroundY + 2) {
+             if (ax <= 1 && dz <= -3 && dz >= -5) {
+                 if (ax === 1 || dz === -5) return BLOCK.PLANKS;
+             }
+        }
+
+        // Mast
+        if (x === 0 && dz === 0) {
+            if (y >= shipGroundY + 1 && y <= shipGroundY + 8) return BLOCK.SPRUCE_LOG;
+            if (y === shipGroundY + 9) return BLOCK.PLANKS; // Crow's nest
+        }
+        
+        // Sail
+        if (dz === 1 && ax <= 2) {
+            if (y >= shipGroundY + 3 && y <= shipGroundY + 7) {
+                const sailWidth = (y === shipGroundY + 3 || y === shipGroundY + 7) ? 1 : 2;
+                if (ax <= sailWidth) return BLOCK.WOOL_WHITE;
+            }
+        }
+        
+        if (y >= shipGroundY && y <= shipGroundY + 10) return BLOCK.AIR;
+    }
+
+    if (x === 5 && y === 65 && z === 189) return BLOCK.CHEST;
+    if (x === 5 && y === 65 && z === -189) return BLOCK.CHEST_REVERSED;
+
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
@@ -79,9 +153,8 @@ export class SkyCastlesMode implements GameModeInfo {
     const chunkType = chunkManager.getBlockFromChunk(cx, cz, lx, Math.floor(y) - WORLD_Y_OFFSET, lz);
     if (chunkType !== undefined) return chunkType;
 
-    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
-    if (bakedBlocks.has(key)) return bakedBlocks.get(key)!;
     if (skycastlesBakedBlocks.has(key)) return skycastlesBakedBlocks.get(key)!;
+
     
     // Check generators
     if (y >= 65) {
@@ -99,33 +172,9 @@ export class SkyCastlesMode implements GameModeInfo {
     const isRedSide = z <= -70;
     const isVoid = !isBlueSide && !isRedSide;
 
-    // "add 2 chests on top of the top flank plateform in the mid"
-    // Also ensuring there's a platform underneath them
-    if (y === 65 && Math.abs(x) === 14 && z === 0) return Math.abs(x) === 14 ? (x > 0 ? BLOCK.CHEST_REVERSED : BLOCK.CHEST) : BLOCK.CHEST;
-    if (y === 64 && Math.abs(x) >= 13 && Math.abs(x) <= 15 && Math.abs(z) <= 2) return BLOCK.PLANKS;
-
-    // "add a small ship behind the mountain with a chest on it" (Blue side, Z=250)
-    if (z >= 246 && z <= 254 && Math.abs(x) <= 2) {
-        const shipGroundY = 46; // The ground is around 45 here
-        if (y === shipGroundY) return BLOCK.DARK_OAK_PLANKS;
-        if (y === shipGroundY + 1) {
-            if (x === 0 && z === 250) return BLOCK.CHEST;
-            if (Math.abs(x) === 2 || z === 246 || z === 254) return BLOCK.WOOD;
-            if (x === 0 && z === 252) return BLOCK.SPRUCE_LOG; // mast
-            return BLOCK.AIR;
-        }
-        if (y >= shipGroundY + 2 && y <= shipGroundY + 5) {
-            if (x === 0 && z === 252) return BLOCK.SPRUCE_LOG; // mast
-            if (y >= shipGroundY + 3 && Math.abs(x) <= 1 && Math.abs(z - 252) <= 1 && !(x === 0 && z === 252)) return BLOCK.WOOL_WHITE; // sail
-        }
-    }
-
     if (isVoid) return BLOCK.AIR;
 
     if (Math.abs(z) >= 550 || Math.abs(x) > 95) return BLOCK.AIR;
-
-    if (x === 5 && y === 65 && z === 189) return BLOCK.CHEST;
-    if (x === 5 && y === 65 && z === -189) return BLOCK.CHEST_REVERSED;
 
     const groundY = getTerrainHeight(x, z, true);
     if (y >= groundY && y < groundY + 1) return 1; 

@@ -209,8 +209,8 @@
       "shopItems": []
     },
     {
-      "id": "hub_npc_br",
-      "name": "Battle Royale",
+      "id": "hub_npc_void",
+      "name": "Void Trail",
       "position": {
         "x": 12,
         "y": 1,

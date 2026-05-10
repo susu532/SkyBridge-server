@@ -23,7 +23,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
   const isHubMode = mode.name.startsWith("/hub");
   const namespacePrefix = mode.name;
   const worldName = namespacePrefix.replace("/", "");
-  const isSkyCastlesMode = mode.name.startsWith("/skycastles");
+  const isSkyCastlesMode = mode.name.startsWith("/skycastles") || mode.name.startsWith("/voidtrail");
   // Spatial Hash definitions (reused to prevent GC thrashing)
   const CELL_SIZE = 16;
   const PLAYER_CELL_SIZE = 25;
@@ -552,7 +552,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
     socket.on("join", (data) => {
       let team = null;
 
-      if (mode.name.startsWith("/skycastles")) {
+      if (mode.name.startsWith("/skycastles") || mode.name.startsWith("/voidtrail")) {
         let b = 0;
         let r = 0;
         Object.values(players).forEach((p) => {

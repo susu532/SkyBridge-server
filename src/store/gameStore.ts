@@ -85,7 +85,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   gameStartTime: 0,
   setGameStartTime: (time) => set({ gameStartTime: time }),
 
-  isMapLoading: false,
+  isMapLoading: true,
   setIsMapLoading: (isLoading) => set({ isMapLoading: isLoading }),
 
   skycoins: {}, 
