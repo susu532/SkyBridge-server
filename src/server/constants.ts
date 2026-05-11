@@ -6,6 +6,10 @@ export const WORLD_Y_OFFSET = -60;
 
 export const BLOCK = ItemType as any;
 
+export function isWaterBlock(type: number) {
+  return type === BLOCK.WATER || (type >= 19 && type <= 25);
+}
+
 export function isSolidBlock(type: number) {
   return type !== BLOCK.AIR && 
          type !== BLOCK.WATER && 
@@ -37,5 +41,10 @@ export function isSolidBlock(type: number) {
          type !== BLOCK.TORCH_WALL_X_NEG &&
          type !== BLOCK.TORCH_WALL_Z_POS &&
          type !== BLOCK.TORCH_WALL_Z_NEG &&
-         type !== BLOCK.TORCHFLOWER;
+         type !== BLOCK.TORCHFLOWER &&
+         type !== BLOCK.LAUNCHER &&
+         type !== BLOCK.LAUNCHER_WALL_X_POS &&
+         type !== BLOCK.LAUNCHER_WALL_X_NEG &&
+         type !== BLOCK.LAUNCHER_WALL_Z_POS &&
+         type !== BLOCK.LAUNCHER_WALL_Z_NEG;
 }

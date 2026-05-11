@@ -1,6 +1,6 @@
 
 import { GameContext } from "./GameContext";
-import { BLOCK, isSolidBlock } from "./constants";
+import { BLOCK, isSolidBlock, isWaterBlock } from "./constants";
 
 export function tick(ctx: GameContext, delta: number) {
   const {
@@ -513,9 +513,9 @@ export function tick(ctx: GameContext, delta: number) {
         const blockAtFeet = fastGetBlock(checkX, mob.position.y + 0.5, checkZ);
 
         const isWater =
-          blockAtFeet === BLOCK.WATER ||
+          isWaterBlock(blockAtFeet) ||
           blockAtFeet === BLOCK.LAVA ||
-          blockBelow === BLOCK.WATER ||
+          isWaterBlock(blockBelow) ||
           blockBelow === BLOCK.LAVA;
         const isLedge =
           !isSolidBlock(blockBelow) && !isSolidBlock(blockFarBelow) && !isWater;
