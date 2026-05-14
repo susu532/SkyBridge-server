@@ -8,5 +8,5 @@ esbuild.build({
   outdir: 'dist',
   format: 'cjs',
   outExtension: { '.js': '.cjs' },
-  external: ['express', 'socket.io', 'vite', 'better-sqlite3']
+  external: ['express', 'socket.io', 'vite', 'better-sqlite3', 'ws', 'cors']
 }).catch(() => process.exit(1));
