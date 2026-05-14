@@ -78,10 +78,11 @@ export const DEFAULT_SETTINGS: GameSettings = {
 class SettingsManager {
   private settings: GameSettings = { ...DEFAULT_SETTINGS };
   private listeners: ((settings: GameSettings) => void)[] = [];
+  private isBrowser = typeof window !== 'undefined';
 
   constructor() {
     // Detect mobile/tablet devices
-    const isMobileDevice = typeof window !== 'undefined' && 
+    const isMobileDevice = this.isBrowser && 
       (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
       ('ontouchstart' in window) || 
       (navigator.maxTouchPoints > 0));
@@ -92,15 +93,17 @@ class SettingsManager {
       this.settings.renderDistance = Math.min(this.settings.renderDistance, 3); // lowering default render distance for mobile
     }
 
-    try {
-      const saved = localStorage.getItem('game_settings_v2');
-      if (saved) {
-        // Deep merge to ensure all defaults are present (like keybinds)
-        const parsed = JSON.parse(saved);
-        this.settings = { ...this.settings, ...parsed };
+    if (this.isBrowser) {
+      try {
+        const saved = localStorage.getItem('game_settings_v2');
+        if (saved) {
+          // Deep merge to ensure all defaults are present (like keybinds)
+          const parsed = JSON.parse(saved);
+          this.settings = { ...this.settings, ...parsed };
+        }
+      } catch (e) {
+        console.error('Failed to access or parse localStorage settings', e);
       }
-    } catch (e) {
-      console.error('Failed to access or parse localStorage settings', e);
     }
   }
 
@@ -110,10 +113,12 @@ class SettingsManager {
 
   updateSettings(newSettings: Partial<GameSettings>) {
     this.settings = { ...this.settings, ...newSettings };
-    try {
-      localStorage.setItem('game_settings_v2', JSON.stringify(this.settings));
-    } catch (e) {
-      console.error('Failed to save settings to localStorage', e);
+    if (this.isBrowser) {
+      try {
+        localStorage.setItem('game_settings_v2', JSON.stringify(this.settings));
+      } catch (e) {
+        console.error('Failed to save settings to localStorage', e);
+      }
     }
     this.notify();
   }
