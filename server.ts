@@ -7,6 +7,9 @@ import fs from 'fs';
 import { Worker, MessageChannel } from 'worker_threads';
 import { WebSocketServer } from 'ws';
 
+const ALLOWED_ORIGIN = 'https://starplex-io.vercel.app';
+const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale']);
+
 async function startServer() {
   const app = express();
 
@@ -17,12 +20,6 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
-  
-  app.use((req, res, next) => {
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-    next();
-  });
 
   const wss = new WebSocketServer({ noServer: true });
 
@@ -36,11 +33,22 @@ async function startServer() {
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
+    const origin = request.headers.origin;
+    if (origin && origin !== ALLOWED_ORIGIN) {
+        socket.destroy();
+        return;
+    }
+
     if (request.url && request.url.startsWith('/ws/')) {
         let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
         if (!serverName.includes('_')) serverName += '_1';
         
         const mode = serverName.split('_')[0];
+
+        if (!VALID_MODES.has(mode)) {
+            socket.destroy();
+            return;
+        }
         
         let instances = activeInstances[mode];
         if (!instances) {
@@ -51,6 +59,10 @@ async function startServer() {
         let instance = instances.find(i => i.id === `/${serverName}`);
         if (!instance) {
             instance = instances[0];
+            if (!instance) {
+                socket.destroy();
+                return;
+            }
             serverName = instance.id.replace('/', '');
         }
 
@@ -58,8 +70,9 @@ async function startServer() {
             wss.handleUpgrade(request as any, socket, head, (ws) => {
                 const { port1, port2 } = new MessageChannel();
                 
-                ws.on('message', (data, isBinary) => {
-                    port1.postMessage({ type: 'message', data, isBinary });
+                ws.on('message', (data: Buffer, isBinary) => {
+                    const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+                    port1.postMessage({ type: 'message', data: ab, isBinary }, [ab]);
                 });
                 
                 ws.on('close', () => {
@@ -200,6 +213,10 @@ async function startServer() {
     let mode = (req.query.mode as string) || 'hub';
     if (mode.includes('_')) {
        mode = mode.split('_')[0];
+    }
+    if (!VALID_MODES.has(mode)) {
+       res.status(400).json({ error: 'Invalid game mode' });
+       return;
     }
     const serverId = getOrProvisionServer(mode);
     res.json({ serverId });
