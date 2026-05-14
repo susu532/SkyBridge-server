@@ -1,9 +1,9 @@
 import { setupSocketHandlers } from "./SocketHandlers";
 import { tick as runTick } from "./GameTick";
 import { GameModeInfo } from "./modes/GameMode";
-import { Server } from "socket.io";
 import { ChunkManager } from "./ChunkManager";
 import { chatModerator } from "./ChatModerator";
+import { parentPort } from "worker_threads";
 import {
   getTerrainHeight,
   getTerrainMinHeight,
@@ -13,6 +13,8 @@ import {
 } from "../game/TerrainGenerator";
 
 import { BLOCK, isSolidBlock, CHUNK_SIZE, WORLD_Y_OFFSET } from "./constants";
+import { MobTypes } from "../game/Constants";
+import { tickItemDespawn, tickMobDespawn } from "./Systems";
 import itemsData from "../../data/items.json";
 import npcsData from "../game/data/npcs.json";
 import bakedBlocksData from "../../data/bakedBlocks.json";
@@ -21,24 +23,29 @@ import path from "path";
 
 const bakedBlocks = new Map<string, number>(Object.entries(bakedBlocksData));
 
-export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
+import { spawnMobsTick } from "./MobSpawner";
+
+import { IServerPlayer, ITickMob, IDroppedItemState, IMinionState } from "../types/shared";
+
+export function createGameServer(io: any, db: any, mode: GameModeInfo) {
   const isHubMode = mode.name.startsWith("/hub");
   const namespacePrefix = mode.name;
   const worldName = namespacePrefix.replace("/", "");
-  const isSkyCastlesMode = mode.name.startsWith("/skycastles") || mode.name.startsWith("/voidtrail");
+  const isSkyCastlesMode = mode.name.startsWith("/skycastles");
   // Spatial Hash definitions (reused to prevent GC thrashing)
   const CELL_SIZE = 16;
   const PLAYER_CELL_SIZE = 25;
   const getCellKey = (cx: number, cz: number) =>
     (cx & 0x7fff) | ((cz & 0x7fff) << 15);
-  const spatialHash = new Map<number, any[]>();
-  const playerHash = new Map<number, any[]>();
+  const spatialHash = new Map<number, ITickMob[]>();
+  const playerHash = new Map<number, IServerPlayer[]>();
 
   const ioNamespace = io.of(mode.name);
 
   const state = {
     dayTime: 0,
     gameState: "playing",
+    winningTeam: null as string | null,
     gameStartTime: Date.now(),
     resetCountdown: null as number | null,
     emptyRoomSince: null as number | null,
@@ -55,7 +62,7 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
 
   const chunkManager = new ChunkManager(worldName, db);
   let npcs: any[] = [];
-  const players: Record<string, any> = {};
+  const players: Record<string, IServerPlayer> = {};
   const morvaneDead: Record<string, boolean> = { red: false, blue: false };
 
   function broadcastToNearby(
@@ -68,12 +75,20 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
   ) {
     const pcx = Math.floor(positionx / PLAYER_CELL_SIZE);
     const pcz = Math.floor(positionz / PLAYER_CELL_SIZE);
-    const targetRoom = `grid_${getCellKey(pcx, pcz)}`;
 
-    if (excludeSocketId) {
-      ioNamespace.to(targetRoom).except(excludeSocketId).emit(eventName, data);
-    } else {
-      ioNamespace.to(targetRoom).emit(eventName, data);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const key = getCellKey(pcx + dx, pcz + dz);
+        const cellPlayers = playerHash.get(key);
+        if (cellPlayers) {
+          for (const p of cellPlayers) {
+            if (p.id !== excludeSocketId) {
+              const sock = ioNamespace.sockets.get(p.id);
+              if (sock) sock.emit(eventName, data);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -108,136 +123,45 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
 
   const intervals: NodeJS.Timeout[] = [];
 
-  const insertNPCs = db.prepare(
-    `INSERT OR REPLACE INTO world_npcs (world, data) VALUES (?, ?)`,
-  );
-
-  // Unified 10s Background Tasks (optimized for many game mode instances)
-  
   const slowTick = () => {
     state.tick10sCount++;
     chunkManager.saveDirtyChunks();
 
     try {
-      if (npcs.length > 0) insertNPCs.run(worldName, JSON.stringify(npcs));
+      if (npcs.length > 0) {
+        parentPort?.postMessage({
+          type: 'save_npcs',
+          world: worldName,
+          data: JSON.stringify(npcs)
+        });
+      }
     } catch (e) {}
 
     ioNamespace.emit("timeUpdate", { dayTime: state.dayTime });
 
     if (state.tick10sCount % 3 === 0) {
       chunkManager.unloadIdleChunks(players, 6); // Every 30s
-
-      // Item Despawn Logic
-      const now = Date.now();
-      const expiryTime = 5 * 60 * 1000; // 5 minutes
-      let despawned = 0;
-      for (const id in droppedItems) {
-        if (now - droppedItems[id].timestamp > expiryTime) {
-          const pos = droppedItems[id].position;
-          delete droppedItems[id];
-          broadcastToNearby("itemDespawned", id, pos.x, pos.z, 22500, null);
-          despawned++;
-        }
-        if (despawned > 50) break; // Limit despawns per tick
-      }
+      tickItemDespawn(ctx);
     }
 
-    // Mob Despawn Logic (every 10s)
-    if (isSkyCastlesMode) {
-      const positions = [
-        { x: 0.5, y: 104, z: 200.5, team: "blue" },
-        { x: 0.5, y: 104, z: -200.5, team: "red" },
-      ];
-      for (const target of positions) {
-        let found = false;
-        for (const id in mobs) {
-          const m = mobs[id];
-          if (m.type === "Morvane" && m.team === target.team) {
-            found = true;
-            let hasP = false;
-            for (const _ in players) {
-              hasP = true;
-              break;
-            }
-            if (!hasP) {
-              m.health = 5000;
-              m.lastHealth = 5000;
-              m.position.x = target.x;
-              m.position.y = target.y;
-              m.position.z = target.z;
-              m.velocity.x = 0;
-              m.velocity.y = 0;
-              m.velocity.z = 0;
-            }
-            break;
-          }
-        }
-        let hasP = false;
-        for (const _ in players) {
-          hasP = true;
-          break;
-        }
-        if (!hasP) {
-          morvaneDead[target.team] = false;
-        }
-        if (!found && !morvaneDead[target.team]) {
-          spawnMob("Morvane", target.x, target.y, target.z, 200, target.team);
-        }
-      }
+    if (mode.onSlowTick) {
+      mode.onSlowTick(ctx);
     }
 
-    let hasPlayers = false;
-    for (const _ in players) {
-      hasPlayers = true;
-      break;
-    }
-
-    const isDay = Math.sin(state.dayTime * Math.PI * 2) > 0;
-    if (!hasPlayers) {
-      for (const id in mobs) {
-        if (mobs[id].type === "Morvane") continue;
-        const mx = mobs[id].position.x;
-        const mz = mobs[id].position.z;
-        delete mobs[id];
-        mobBuffers.delete(id);
-        broadcastToNearby("mobDespawned", id, mx, mz, 22500, null);
-      }
-    } else {
-      for (const id in mobs) {
-        const mob = mobs[id];
-        let minPlayerDistSq = Infinity;
-        for (const pId in players) {
-          const p = players[pId];
-          const dx = p.position.x - mob.position.x;
-          const dy = p.position.y - mob.position.y;
-          const dz = p.position.z - mob.position.z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < minPlayerDistSq) minPlayerDistSq = distSq;
-        }
-        const isHostile = [
-          "Zombie",
-          "Creeper",
-          "Skeleton",
-          "Slime",
-          "Morvane",
-        ].includes(mob.type);
-        if (
-          mob.type !== "Morvane" &&
-          (Math.sqrt(minPlayerDistSq) > 120 || (isDay && isHostile))
-        ) {
-          const mx = mob.position.x;
-          const mz = mob.position.z;
-          delete mobs[id];
-          mobBuffers.delete(id);
-          broadcastToNearby("mobDespawned", id, mx, mz, 22500, null);
-        }
-      }
-    }
+    tickMobDespawn(ctx);
   };
 
-  const droppedItems: Record<string, any> = {};
-  const mobs: Record<string, any> = {};
-  const minions: Record<string, any> = {};
+  const droppedItems: Record<string, IDroppedItemState> = {};
+  const mobs: Record<string, ITickMob> = {};
+  const minions: Record<string, IMinionState> = {};
+
+  const mobPool: ITickMob[] = [];
+  function getMobFromPool() {
+    return mobPool.length > 0 ? mobPool.pop() : { velocity: {x: 0, y: 0, z: 0}, position: {x: 0, y: 0, z: 0} };
+  }
+  function releaseMobToPool(mob: ITickMob) {
+    if (mobPool.length < 500) mobPool.push(mob);
+  }
   const pendingPlayerUpdates = new Set<string>();
   const pendingHits: any[] = [];
   const pendingMobHits: any[] = [];
@@ -248,26 +172,27 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
 
   // Indestructible blocks (baked builds, bedrock, castles, villages)
   function isIndestructible(x: number, y: number, z: number): boolean {
-    const wx = Math.floor(x);
-    const wy = Math.floor(y);
-    const wz = Math.floor(z);
-    const key = `${wx},${wy},${wz}`;
-    const changes = chunkManager.getBlockChangesDict();
-    
-    // If a player placed this block, it must be breakable
-    if (changes[key] !== undefined && changes[key] > 0) {
-      return false;
-    }
-
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const ly = y - WORLD_Y_OFFSET;
+    const ly = Math.floor(y) - WORLD_Y_OFFSET;
 
-    // Force load the chunk if it isn't loaded so we get the accurate current block
-    chunkManager.getChunkArray(cx, cz, true);
+    const absX = Math.abs(Math.floor(x));
+    const absZ = Math.abs(Math.floor(z));
+    
+    // Protect the 4 map corners from block placement/destruction
+    if (absX >= 29 && absX <= 34 && absZ >= 76 && absZ <= 81) {
+      return true;
+    }
+
+    // Do not force load the chunk synchronously. Active regions are already loaded.
     let currentBlock = chunkManager.getBlockFromChunk(cx, cz, lx, ly, lz);
+
+    // If a player placed this block, it must be breakable
+    if (currentBlock !== undefined && currentBlock > 0) {
+      return false;
+    }
 
     // If the chunk is literally empty/ungenerated, we could fall back to the game mode's terrain generator
     if (currentBlock === undefined) {
@@ -276,211 +201,9 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
 
     return mode.isIndestructible(x, y, z, bakedBlocks, currentBlock || 0);
   }
-  function DEPRECATED_isIndestructible(
-    x: number,
-    y: number,
-    z: number,
-  ): boolean {
-    if (isHubMode) return true; // Entire hub is indestructible
-    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
-    if (bakedBlocks.has(key)) return true;
-
-    // Bedrock is always indestructible
-    if (y === -60) return true;
-
-    // Ship/Castle footprints (only in SkyCastles mode)
-    if (isSkyCastlesMode) {
-      const isWithinX = x >= -45 && x <= 45;
-      const shipCenter = 450;
-      const isBlueShip = z >= shipCenter - 50 && z <= shipCenter + 100;
-      const isRedShip = z >= -(shipCenter + 100) && z <= -(shipCenter - 50);
-      if (isWithinX && (isBlueShip || isRedShip) && y >= 130) {
-        return true;
-      }
-    }
-
-    // Village boundaries (protected area)
-    if (!isSkyCastlesMode) {
-      const isBlueVillageZ = z >= 61 && z <= 110;
-      const isRedVillageZ = z >= -110 && z <= -61;
-      const isVillageX = x >= -50 && x <= 50;
-      if (isVillageX && (isBlueVillageZ || isRedVillageZ) && y >= 4) {
-        return true;
-      }
-    }
-
-    return false;
-  }
 
   function getBlockAt(x: number, y: number, z: number) {
     return mode.getBlockAt(x, y, z, chunkManager, bakedBlocks);
-  }
-  function DEPRECATED_getBlockAt(x: number, y: number, z: number) {
-    if (isHubMode) {
-      const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
-
-      // Portal to SkyBridge (Force at Y=3 floor level)
-      if (z === 15 && Math.abs(x) <= 2) {
-        if (Math.abs(x) === 2) {
-          if (y >= 3 && y <= 7) return BLOCK.OBSIDIAN;
-        } else {
-          if (y === 7) return BLOCK.OBSIDIAN;
-          if (y >= 3 && y <= 6) return BLOCK.LAVA;
-        }
-      }
-
-      const cx = Math.floor(x / CHUNK_SIZE);
-      const cz = Math.floor(z / CHUNK_SIZE);
-      const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-      const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-      const chunkType = chunkManager.getBlockFromChunk(
-        cx,
-        cz,
-        lx,
-        Math.floor(y) - WORLD_Y_OFFSET,
-        lz,
-      );
-      if (chunkType !== undefined) return chunkType;
-
-      const distSq = x * x + z * z;
-      const dist = Math.sqrt(distSq);
-
-      if (distSq <= 7225 && y >= -60 && y <= 0) {
-        // Max radius 85, within world height bounds
-        const radiusAtY = Math.sqrt(y + 60) * 11;
-        const noise = (Math.sin(x * 0.1) + Math.cos(z * 0.1)) * 4;
-
-        if (dist < radiusAtY + noise) {
-          if (y === -60) return 1; // Bedrock
-          if (y >= -60 && y < 0) return 1; // Stone/Dirt
-          if (y === 0) return 115; // Polished Andesite
-        }
-      }
-      return BLOCK.AIR;
-    }
-
-    const cx = Math.floor(x / CHUNK_SIZE);
-    const cz = Math.floor(z / CHUNK_SIZE);
-    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const chunkType = chunkManager.getBlockFromChunk(
-      cx,
-      cz,
-      lx,
-      Math.floor(y) - WORLD_Y_OFFSET,
-      lz,
-    );
-    if (chunkType !== undefined) return chunkType;
-
-    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
-    if (bakedBlocks.has(key)) return bakedBlocks.get(key)!;
-
-    // Match client-side void/island logic
-    const isBlueSide = isSkyCastlesMode ? z >= 70 : z >= 0;
-    const isRedSide = isSkyCastlesMode ? z <= -70 : z < 0;
-    const isVoid = !isBlueSide && !isRedSide;
-    const isBridge = isSkyCastlesMode ? isVoid && x >= -8 && x <= 8 : false;
-
-    if (isBridge) {
-      // Bridge is at world Y=0, fences at Y=1. Server just needs to support walking.
-      if (y === 0 || (y === 1 && (x === -8 || x === 8))) return 1;
-      return BLOCK.AIR;
-    }
-
-    if (isVoid) return BLOCK.AIR;
-
-    if (isSkyCastlesMode) {
-      if (Math.abs(z) >= 550 || Math.abs(x) > 95) return BLOCK.AIR;
-    }
-
-    const groundY = getTerrainHeight(x, z, isSkyCastlesMode);
-    // A block at groundY occupies [groundY, groundY + 1)
-    if (y >= groundY && y < groundY + 1) return 1;
-
-    if (y < groundY) {
-      if (isSkyCastlesMode) {
-        const minH = getTerrainMinHeight(x, z, true);
-        if (y < minH) return BLOCK.AIR;
-      }
-      // Check for caves
-      const dxBlue = Math.max(0, Math.abs(x) - 50);
-      const caveExclusionEnd = isSkyCastlesMode ? 130 : 110;
-      const dzBlue = Math.max(
-        0,
-        (isSkyCastlesMode ? 70 : 0) - z,
-        z - caveExclusionEnd,
-      );
-      const distBlue = Math.sqrt(dxBlue * dxBlue + dzBlue * dzBlue);
-
-      const dxRed = Math.max(0, Math.abs(x) - 50);
-      const dzRed = Math.max(
-        0,
-        -caveExclusionEnd - z,
-        z - -(isSkyCastlesMode ? 70 : 0),
-      );
-      const distRed = Math.sqrt(dxRed * dxRed + dzRed * dzRed);
-
-      const distToProtected = Math.min(distBlue, distRed);
-      const isAreaProtected = distToProtected === 0;
-
-      const maxProtectedZ = isSkyCastlesMode ? 410 : 410;
-      const villageStart = isSkyCastlesMode ? 70 : 61; // For Bridge mode, protect from village onwards
-      const isVillageOrCastle =
-        x >= -50 &&
-        x <= 50 &&
-        ((z >= villageStart && z <= maxProtectedZ) ||
-          (z <= -villageStart && z >= -maxProtectedZ));
-      const isBridgeArea = isSkyCastlesMode
-        ? x >= -12 && x <= 12 && z > -70 && z < 70
-        : false;
-      const isProtected = isVillageOrCastle || isBridgeArea || isAreaProtected;
-
-      const elevationNoise = noise2D(x * 0.001, z * 0.001);
-      const isOcean = elevationNoise < -0.5;
-
-      const hasCaves =
-        !isSkyCastlesMode &&
-        !isProtected &&
-        !isOcean &&
-        noise2D(x * 0.01, z * 0.01) > 0.3;
-
-      const cy = y + 60;
-      const cTerrainHeight = groundY + 60;
-
-      if (hasCaves && cy > 1 && cy < cTerrainHeight - 4) {
-        let isCave = false;
-        const caveNoise1 = noise3D(x * 0.015, cy * 0.015, z * 0.015);
-        const caveNoise2 = noise3D(
-          x * 0.015 + 1000,
-          cy * 0.015 + 1000,
-          z * 0.015 + 1000,
-        );
-        const tunnelRadius =
-          0.08 + noise3D(x * 0.005, cy * 0.005, z * 0.005) * 0.05;
-        if (
-          Math.abs(caveNoise1) < tunnelRadius &&
-          Math.abs(caveNoise2) < tunnelRadius
-        ) {
-          isCave = true;
-        }
-
-        const cavernNoise = noise3D(x * 0.008, cy * 0.01, z * 0.008);
-        if (cavernNoise > 0.3) {
-          isCave = true;
-        }
-
-        if (isCave) {
-          if (cy < 10) {
-            return BLOCK.LAVA;
-          }
-          return BLOCK.AIR;
-        }
-      }
-      return 1; // Below ground is solid
-    }
-
-    // Above ground - No ocean/lakes
-    return BLOCK.AIR;
   }
 
   function spawnMob(
@@ -526,19 +249,23 @@ export function createGameServer(io: Server, db: any, mode: GameModeInfo) {
       scale = 1 + (mobLvl - 1) * 0.1;
     }
 
-    const mob = {
-      id,
-      type,
-      level: mobLvl,
-      scale,
-      position: { x, y, z },
-      velocity: { x: 0, y: 0, z: 0 },
-      health: hp,
-      maxHealth: hp,
-      targetId: null,
-      isGrounded: false,
-      team,
-    };
+    const mob = getMobFromPool();
+    mob.id = id;
+    mob.type = type;
+    mob.level = mobLvl;
+    mob.scale = scale;
+    mob.position.x = x;
+    mob.position.y = y;
+    mob.position.z = z;
+    mob.velocity.x = 0;
+    mob.velocity.y = 0;
+    mob.velocity.z = 0;
+    mob.health = hp;
+    mob.maxHealth = hp;
+    mob.targetId = null;
+    mob.isGrounded = false;
+    mob.team = team;
+
     mobs[id] = mob;
     // console.log(`Spawned Lv${mobLvl} ${type} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
     broadcastToNearby("mobSpawned", mob, x, z, 22500, null);
@@ -572,6 +299,7 @@ const ctx: import("./GameContext").GameContext = {
 
   function resetRoom() {
     state.gameState = "playing";
+    state.winningTeam = null;
     state.resetCountdown = null;
     state.emptyRoomSince = null;
     state.hasSetEndgameMessage = false;
@@ -583,16 +311,15 @@ const ctx: import("./GameContext").GameContext = {
 
     // Clear dictionaries without replacing object references
     for (const key in droppedItems) delete droppedItems[key];
-    for (const key in mobs) delete mobs[key];
+    for (const key of Object.keys(mobs)) { releaseMobToPool(mobs[key]); delete mobs[key]; }
     mobBuffers.clear();
     for (const key in minions) delete minions[key];
 
     // Clear chunks
     chunkManager.resetWorld();
 
-    if (isSkyCastlesMode) {
-      spawnMob("Morvane", 0.5, 104, 200.5, 200, "blue");
-      spawnMob("Morvane", 0.5, 104, -200.5, 200, "red");
+    if (mode.onResetRoom) {
+      mode.onResetRoom(ctx);
     }
 
     ioNamespace.emit("entitiesReset", { mobs, droppedItems, gameStartTime: state.gameStartTime });
@@ -602,9 +329,9 @@ const ctx: import("./GameContext").GameContext = {
     const oldRed: string[] = [];
     const unassigned: string[] = [];
     
-    for (const id in players) {
-      if (players[id].team === "blue") oldBlue.push(id);
-      else if (players[id].team === "red") oldRed.push(id);
+    for (const [id, p] of Object.entries(players)) {
+      if (p.team === "blue") oldBlue.push(id);
+      else if (p.team === "red") oldRed.push(id);
       else unassigned.push(id);
     }
 
@@ -627,6 +354,7 @@ const ctx: import("./GameContext").GameContext = {
     const respawns = [];
     for (const id of orderedPlayers) {
       const p = players[id];
+      if (!p) continue;
       p.health = 100;
       p.maxHealth = 100;
       p.defense = 0;
@@ -680,13 +408,24 @@ const ctx: import("./GameContext").GameContext = {
     }
   }
 
-  function handleMorvaneDeath(deadTeam: string) {
+  function handleMorvaneDeath() {
     if (state.gameState === "endgame") return;
     state.gameState = "endgame";
     state.resetCountdown = Date.now() + 15000;
     state.hasBeenReset = false;
 
+    if (morvaneDead.red && morvaneDead.blue) {
+      state.winningTeam = "draw";
+      ioNamespace.emit("chatMessage", {
+        sender: "System",
+        message: `It's a draw! Both Morvanes died. You will be moved to a new game in 15 seconds.`,
+      });
+      return;
+    }
+
+    const deadTeam = morvaneDead.red ? "red" : "blue";
     const winningTeam = deadTeam === "blue" ? "Red" : "Blue";
+    state.winningTeam = winningTeam.toLowerCase();
 
     // Global announcement
     ioNamespace.emit("chatMessage", {
@@ -694,8 +433,7 @@ const ctx: import("./GameContext").GameContext = {
       message: `Team ${winningTeam} wins! You will be moved to a new game in 15 seconds.`,
     });
 
-    for (const id in players) {
-      const p = players[id];
+    for (const p of Object.values(players)) {
       if (p.team === deadTeam) {
         if (!p.isDead && !p.isSpectator) {
           p.health = 0;
@@ -733,19 +471,41 @@ const ctx: import("./GameContext").GameContext = {
   const tick = (delta: number) => {
     runTick(ctx, delta);
   };
-  // Internal ticking logic managed by Node event loop
-  let lastTickTime = Date.now();
-  const tickInterval = setInterval(() => {
-    const now = Date.now();
-    let delta = (now - lastTickTime) / 1000;
-    if (delta > 0.1) delta = 0.1;
-    lastTickTime = now;
-    try {
-      tick(delta);
-    } catch (err) {
-      console.error(`Error in tick for ${mode.name}`, err);
+  // Accumulator/Fixed Timestep Loop
+  const TICK_RATE = 20; // 20 TPS -> 50ms per tick
+  const FIXED_TIME_STEP = 1000 / TICK_RATE;
+  let lastTimeMs = performance.now();
+  let accumulatorMs = 0;
+  
+  const tickLoop = () => {
+    if (state.isDestroyed) return;
+    
+    const now = performance.now();
+    let frameTime = now - lastTimeMs;
+    // Cap frame time to prevent "spiral of death" on severe lag
+    if (frameTime > 250) {
+      frameTime = 250;
     }
-  }, 50);
+    lastTimeMs = now;
+    
+    accumulatorMs += frameTime;
+    
+    // Process as many fixed steps as we have accumulated
+    while (accumulatorMs >= FIXED_TIME_STEP) {
+      if (state.isDestroyed) break;
+      
+      try {
+        tick(FIXED_TIME_STEP / 1000);
+      } catch (err) {
+        console.error(`Error in tick for ${mode.name}`, err);
+      }
+      
+      accumulatorMs -= FIXED_TIME_STEP;
+    }
+  };
+  
+  // Start the loop and track interval so it stops correctly on destroy
+  const tickInterval = setInterval(tickLoop, Math.floor(FIXED_TIME_STEP / 2));
   intervals.push(tickInterval);
 
   const slowTickInterval = setInterval(() => {
@@ -761,199 +521,10 @@ const ctx: import("./GameContext").GameContext = {
   
   
 
-  const spawnMobsTick = () => {
-    if (state.isDestroyed) return;
-    const isDay = Math.sin(state.dayTime * Math.PI * 2) > 0;
-    state.spawnInterval = isDay ? 1000 : 500; // Double spawn rate at night
-    state.spawnTimeout = setTimeout(spawnMobsTick, state.spawnInterval);
-
-    if (!mode.allowMobSpawns) return;
-    const playerIds = Object.keys(players);
-    if (playerIds.length === 0) return;
-
-    const maxMobs = Math.min(600, playerIds.length * 12);
-    const currentMobs = Object.keys(mobs).length;
-    if (currentMobs < maxMobs) {
-      // Spawn rapidly when many players join organically
-      const batchSize = Math.max(
-        1,
-        Math.min(20, Math.ceil(playerIds.length / 2)),
-      );
-
-      const spawnMemBlocks: Record<string, number> = {};
-      const fastSpawnGetBlock = (bx: number, by: number, bz: number) => {
-        const cx = Math.floor(bx);
-        const cy = Math.floor(by);
-        const cz = Math.floor(bz);
-        const key = `${cx},${cy},${cz}`;
-        if (key in spawnMemBlocks) return spawnMemBlocks[key];
-        const blk = getBlockAt(cx, cy, cz);
-        spawnMemBlocks[key] = blk;
-        return blk;
-      };
-
-      for (let batch = 0; batch < batchSize; batch++) {
-        if (Object.keys(mobs).length >= maxMobs) break;
-        const randomPlayerId =
-          playerIds[Math.floor(Math.random() * playerIds.length)];
-        const randomPlayer = players[randomPlayerId];
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 20 + Math.random() * 40;
-        const x = randomPlayer.position.x + Math.cos(angle) * dist;
-        const z = randomPlayer.position.z + Math.sin(angle) * dist;
-
-        if (isNature(x, z, isSkyCastlesMode)) {
-          let spawnY = -1;
-          // Try to find a valid ground near the player's Y level
-          // We search for multiple layers (surface and caves) and pick one
-          let validSpawnYLevels: number[] = [];
-          const startY = 150; // Search from near the top, covering Skycastles peaks
-          const endY = -50; // Search down to near the bottom
-
-          // Search in the vertical column
-          for (let y = startY; y > endY; y--) {
-            const blockBelow = fastSpawnGetBlock(x, y - 1, z);
-            const blockAt = fastSpawnGetBlock(x, y, z);
-            const blockAbove = fastSpawnGetBlock(x, y + 1, z);
-
-            // Allow standing on solid blocks, except leaves and glass
-            const validGround =
-              isSolidBlock(blockBelow) &&
-              blockBelow !== BLOCK.LEAVES &&
-              blockBelow !== BLOCK.GLASS &&
-              blockBelow !== BLOCK.BIRCH_LEAVES &&
-              blockBelow !== BLOCK.SPRUCE_LEAVES &&
-              blockBelow !== BLOCK.DARK_OAK_LEAVES &&
-              blockBelow !== BLOCK.CHERRY_LEAVES;
-            const validSpace =
-              blockAt === BLOCK.AIR && blockAbove === BLOCK.AIR;
-
-            if (validGround && validSpace) {
-              // Valid ground found. Check if it's within a reasonable semi-vertical distance of the player
-              // to keep them loaded or if it's just a valid spot in general
-              if (Math.abs(y - randomPlayer.position.y) < 40) {
-                validSpawnYLevels.push(y);
-              }
-              // Skip 2 blocks to find next potential platform faster
-              y -= 2;
-            }
-          }
-
-          if (validSpawnYLevels.length > 0) {
-            spawnY =
-              validSpawnYLevels[
-                Math.floor(Math.random() * validSpawnYLevels.length)
-              ];
-          }
-
-          if (spawnY !== -1) {
-            const rand = Math.random();
-            let type = "";
-            let level = 1;
-
-            if (isDay) {
-              // Day: spawn mostly passive mobs, but also try hostile (client will only allow them in caves)
-              if (rand > 0.8) type = "Cow";
-              else if (rand > 0.6) type = "Cow";
-              else if (rand > 0.4) type = "Sheep";
-              else if (rand > 0.3) type = "Zombie";
-              else if (rand > 0.2) type = "Skeleton";
-              else if (rand > 0.1) type = "Creeper";
-              else type = "Slime";
-            } else {
-              // Night: mostly hostile mobs
-              if (rand > 0.95) type = "Cow";
-              else if (rand > 0.9) type = "Cow";
-              else if (rand > 0.85) type = "Sheep";
-              else if (rand > 0.6) type = "Zombie";
-              else if (rand > 0.4) type = "Skeleton";
-              else if (rand > 0.2) type = "Creeper";
-              else type = "Slime";
-            }
-
-            // For hostile mobs, we need to check light level securely off the client
-            if (["Zombie", "Creeper", "Skeleton", "Slime"].includes(type)) {
-              level = 1;
-
-              // Server-side spawn lighting check
-              let nearLightSource = false;
-              const radius = 7;
-              const px = Math.floor(x);
-              const py = Math.floor(spawnY);
-              const pz = Math.floor(z);
-
-              for (let dx = -radius; dx <= radius; dx++) {
-                for (let dy = -radius; dy <= radius; dy++) {
-                  for (let dz = -radius; dz <= radius; dz++) {
-                    if (dx * dx + dy * dy + dz * dz <= radius * radius) {
-                      const b = fastSpawnGetBlock(px + dx, py + dy, pz + dz);
-                      if (
-                        b === BLOCK.GLOWSTONE ||
-                        b === BLOCK.LAVA ||
-                        b === BLOCK.TORCH ||
-                        b === BLOCK.CANDLE ||
-                        b === BLOCK.TORCH_WALL_X_POS ||
-                        b === BLOCK.TORCH_WALL_X_NEG ||
-                        b === BLOCK.TORCH_WALL_Z_POS ||
-                        b === BLOCK.TORCH_WALL_Z_NEG
-                      ) {
-                        nearLightSource = true;
-                        break;
-                      }
-                    }
-                  }
-                  if (nearLightSource) break;
-                }
-                if (nearLightSource) break;
-              }
-
-              let isExposed = true;
-              if (!nearLightSource) {
-                for (let y = py + 1; y < 150; y++) {
-                  const block = fastSpawnGetBlock(px, y, pz);
-                  if (
-                    block !== BLOCK.AIR &&
-                    block !== BLOCK.WATER &&
-                    block !== BLOCK.GLASS
-                  ) {
-                    // Simple exposure test
-                    isExposed = false;
-                    break;
-                  }
-                }
-              }
-
-              if (!nearLightSource && (!isDay || !isExposed)) {
-                for (let i = 2; i <= 13; i++) {
-                  if (Math.random() < Math.pow(0.8, i - 1)) {
-                    level = i;
-                  } else {
-                    break;
-                  }
-                }
-                spawnMob(
-                  type,
-                  Math.floor(x) + 0.5,
-                  spawnY,
-                  Math.floor(z) + 0.5,
-                  level,
-                );
-              }
-            } else {
-              spawnMob(
-                type,
-                Math.floor(x) + 0.5,
-                spawnY,
-                Math.floor(z) + 0.5,
-                level,
-              );
-            }
-          }
-        }
-      }
-    }
+  const doSpawnMobsTick = () => {
+    spawnMobsTick(ctx, doSpawnMobsTick);
   };
-  setTimeout(spawnMobsTick, state.spawnInterval);
+  setTimeout(doSpawnMobsTick, state.spawnInterval);
 
   // Call mode-specific initialization
   if (mode.onInit) {

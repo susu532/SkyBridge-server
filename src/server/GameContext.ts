@@ -1,6 +1,8 @@
 
+import { IServerPlayer, ITickMob, IDroppedItemState, IMinionState } from '../types/shared';
+
 export interface GameContext {
-  ioNamespace: import("socket.io").Namespace;
+  ioNamespace: any;
   chunkManager: any;
   worldName: string;
   isSkyCastlesMode: boolean;
@@ -10,11 +12,11 @@ export interface GameContext {
   
   bakedBlocks: Map<string, number>;
   npcs: any[];
-  players: Record<string, any>;
+  players: Record<string, IServerPlayer>;
   morvaneDead: Record<string, boolean>;
-  droppedItems: Record<string, any>;
-  mobs: Record<string, any>;
-  minions: Record<string, any>;
+  droppedItems: Record<string, IDroppedItemState>;
+  mobs: Record<string, ITickMob>;
+  minions: Record<string, IMinionState>;
   
   pendingPlayerUpdates: Set<string>;
   pendingHits: any[];
@@ -24,12 +26,13 @@ export interface GameContext {
   playerBuffers: Map<string, Buffer>;
   mobBuffers: Map<string, Buffer>;
   
-  spatialHash: Map<number, any[]>;
-  playerHash: Map<number, any[]>;
+  spatialHash: Map<number, ITickMob[]>;
+  playerHash: Map<number, IServerPlayer[]>;
 
   state: {
     dayTime: number;
     gameState: string;
+    winningTeam: string | null;
     gameStartTime: number;
     resetCountdown: number | null;
     emptyRoomSince: number | null;
@@ -50,10 +53,11 @@ export interface GameContext {
 
   // Functions
   getCellKey: (cx: number, cz: number) => number;
-  broadcastToNearby: (eventName: string, data: any, x: number, z: number, rangeSq: number, excludeId?: string | null) => void;
+  broadcastToNearby: <T = any>(eventName: string, data: T, x: number, z: number, rangeSq: number, excludeId?: string | null) => void;
   spawnMob: (type: string, x: number, y: number, z: number, level?: number, team?: string) => void;
   isIndestructible: (x: number, y: number, z: number) => boolean;
   getBlockAt: (x: number, y: number, z: number) => number | undefined;
   resetRoom: () => void;
-  handleMorvaneDeath: (deadTeam: string) => void;
+  handleMorvaneDeath: () => void;
+  releaseMobToPool: (mob: ITickMob) => void;
 }

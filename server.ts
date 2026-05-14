@@ -1,20 +1,11 @@
-import { HubMode } from './src/server/modes/HubMode';
-import { SkyBridgeMode } from './src/server/modes/SkyBridgeMode';
-import { SkyCastlesMode } from './src/server/modes/SkyCastlesMode';
-import { DungeonDelverMode } from './src/server/modes/DungeonDelverMode';
-import { BattleRoyaleMode } from './src/server/modes/BattleRoyaleMode';
-import { createGameServer } from './src/server/GameServer';
 import express from 'express';
 import cors from 'cors';
 
 import { createServer } from 'http';
-import { Server } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
-import Database from 'better-sqlite3';
-import itemsData from './data/items.json';
-import npcsData from './src/game/data/npcs.json';
-import bakedBlocksData from './data/bakedBlocks.json';
+import { Worker, MessageChannel } from 'worker_threads';
+import { WebSocketServer } from 'ws';
 
 async function startServer() {
   const app = express();
@@ -26,65 +17,79 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: { 
-      origin: 'https://starplex-io.vercel.app',
-      methods: ['GET', 'POST']
+  
+  app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    next();
+  });
+
+  const wss = new WebSocketServer({ noServer: true });
+
+  const dbWorkerFile = path.join(process.cwd(), 'dist/src/server/DatabaseWorker.cjs');
+  let dbWorker: Worker;
+  if (fs.existsSync(dbWorkerFile)) {
+     dbWorker = new Worker(dbWorkerFile, { execArgv: [] });
+  } else {
+     dbWorker = new Worker(path.join(process.cwd(), 'src/server/DatabaseWorker.ts'), { execArgv: process.execArgv });
+  }
+
+  // Handle WebSocket manual upgrade
+  httpServer.on('upgrade', (request, socket, head) => {
+    if (request.url && request.url.startsWith('/ws/')) {
+        let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
+        if (!serverName.includes('_')) serverName += '_1';
+        
+        const mode = serverName.split('_')[0];
+        
+        let instances = activeInstances[mode];
+        if (!instances) {
+            getOrProvisionServer(mode);
+            instances = activeInstances[mode];
+        }
+        
+        let instance = instances.find(i => i.id === `/${serverName}`);
+        if (!instance) {
+            instance = instances[0];
+            serverName = instance.id.replace('/', '');
+        }
+
+        if (instance && instance.worker) {
+            wss.handleUpgrade(request as any, socket, head, (ws) => {
+                const { port1, port2 } = new MessageChannel();
+                
+                ws.on('message', (data, isBinary) => {
+                    port1.postMessage({ type: 'message', data, isBinary });
+                });
+                
+                ws.on('close', () => {
+                    port1.postMessage({ type: 'close' });
+                    port1.close();
+                });
+                
+                port1.on('message', (msg) => {
+                    if (msg.type === 'message') {
+                        ws.send(msg.data);
+                    } else if (msg.type === 'close') {
+                        ws.close();
+                        port1.close();
+                    }
+                });
+                
+                port1.on('close', () => {
+                    ws.close();
+                });
+                
+                instance.worker.postMessage({ type: 'new_client', port: port2 }, [port2]);
+            });
+        } else {
+            socket.destroy();
+        }
     }
   });
 
-  let db: Database.Database;
-  try {
-    db = new Database('skybridge.db');
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS chunk_data (
-        world TEXT,
-        chunk_id TEXT,
-        data TEXT,
-        PRIMARY KEY (world, chunk_id)
-      );
-      CREATE TABLE IF NOT EXISTS world_npcs (
-        world TEXT,
-        data TEXT,
-        PRIMARY KEY (world)
-      );
-    `);
-  } catch (err) {
-    console.warn("Database initialization failed (likely malformed), resetting skybridge.db...", err);
-    if (fs.existsSync('skybridge.db')) fs.unlinkSync('skybridge.db');
-    db = new Database('skybridge.db');
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS chunk_data (
-        world TEXT,
-        chunk_id TEXT,
-        data TEXT,
-        PRIMARY KEY (world, chunk_id)
-      );
-      CREATE TABLE IF NOT EXISTS world_npcs (
-        world TEXT,
-        data TEXT,
-        PRIMARY KEY (world)
-      );
-    `);
-  }
-
-  const insertChunk = db.prepare(`INSERT OR REPLACE INTO chunk_data (world, chunk_id, data) VALUES (?, ?, ?)`);
-  const getChunk = db.prepare(`SELECT data FROM chunk_data WHERE world = ? AND chunk_id = ?`);
-  const getAllChunks = db.prepare(`SELECT chunk_id, data FROM chunk_data WHERE world = ?`);
-
-  const insertNPCs = db.prepare(`INSERT OR REPLACE INTO world_npcs (world, data) VALUES (?, ?)`);
-  const getNPCs = db.prepare(`SELECT data FROM world_npcs WHERE world = ?`);
-
-
-
-  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, api: any, emptySince?: number }[]> = {};
+  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, emptySince?: number, playerCount?: number, worker: Worker, api: any }[]> = {};
   
-  // We will run intervals independently inside GameServer instead of a monolithic loop
-
   // Background Task Loop: Reaping empty instances (runs every 5 seconds)
   setInterval(() => {
     const now = Date.now();
@@ -92,15 +97,15 @@ async function startServer() {
       const instances = activeInstances[baseName];
       for (let i = instances.length - 1; i >= 0; i--) {
         const instance = instances[i];
-        if (io.of(instance.id).sockets.size === 0) {
+        if (instance.playerCount === 0) {
           if (!instance.emptySince) {
             instance.emptySince = now;
           } else if (now - instance.emptySince > 5 * 60 * 1000) {
-            if (i > 0 || baseName === 'hub_2') {
-              console.log(`Reaping empty instance: ${instance.id}`);
-              if (instance.api && instance.api.destroy) instance.api.destroy();
-              io.of(instance.id).disconnectSockets(true);
-              instances.splice(i, 1);
+            // Only reap if there is more than 1 instance to keep the pool warm
+            if (instances.length > 1) {
+              console.log(`Reaping idle instance: ${instance.id}`);
+              instance.worker.terminate();
+              // The 'exit' event handler will remove it from the instances array
             }
           }
         } else {
@@ -110,51 +115,76 @@ async function startServer() {
     }
   }, 5000);
   
-  function getModeFactory(baseName: string) {
-    if (baseName === 'hub') return new HubMode();
-    if (baseName === 'skybridge') return new SkyBridgeMode();
-    if (baseName === 'skycastles') return new SkyCastlesMode('/skycastles');
-    if (baseName === 'voidtrail') return new SkyCastlesMode('/voidtrail');
-    if (baseName === 'dungeondelver') return new DungeonDelverMode();
-    if (baseName === 'battleroyale') return new BattleRoyaleMode();
-    return new HubMode();
-  }
-
   function getOrProvisionServer(baseName: string) {
     if (!activeInstances[baseName]) {
       activeInstances[baseName] = [];
     }
 
     const instances = activeInstances[baseName];
-    // Find an instance with space
-    for (const instance of instances) {
-      if (io.of(instance.id).sockets.size < instance.playerLimit) {
-        return instance.id;
-      }
-    }
 
-    if (instances.length >= 20) {
-       // Just put them in the least full instance to prevent instance explosion
-       let minSize = Infinity;
-       let bestInstance = instances[0];
-       for (const instance of instances) {
-         const size = io.of(instance.id).sockets.size;
-         if (size < minSize) {
-           minSize = size;
-           bestInstance = instance;
-         }
+    if (instances.length > 0) {
+       let bestInstance = instances.find(i => (i.playerCount || 0) < i.playerLimit);
+       if (bestInstance) {
+           return bestInstance.id;
        }
-       return bestInstance.id;
     }
 
     // Need a new instance
     const newId = `/${baseName}_${instances.length + 1}`;
-    const mode = getModeFactory(baseName);
-    mode.name = newId; // override the namespace name
-    const api = createGameServer(io, db, mode);
     
-    instances.push({ id: newId, name: baseName, playerLimit: 50, api });
-    console.log(`Provisioned new server instance: ${newId}`);
+    // We launch GameServerWorker as a worker_thread to save memory compared to child processes
+    const workerFile = path.join(process.cwd(), 'dist/src/server/GameServerWorker.cjs');
+
+    const workerData = { BASE_NAME: baseName, INSTANCE_ID: newId };
+    
+    let execModule = workerFile;
+    let execArgv = [];
+    if (!fs.existsSync(workerFile)) {
+       execModule = path.join(process.cwd(), 'src/server/GameServerWorker.ts');
+       execArgv = process.execArgv; // Inherit tsx loaders if running in dev
+    }
+
+    const worker = new Worker(execModule, {
+      execArgv: execArgv,
+      workerData: workerData
+    });
+
+    worker.on('message', (msg: any) => {
+        if (msg.type === 'save_chunks' || msg.type === 'save_npcs') {
+            dbWorker.postMessage(msg);
+        } else if (msg.type === 'playerCount') {
+            const list = activeInstances[baseName];
+            if (list) {
+                const instance = list.find(i => i.id === newId);
+                if (instance) {
+                    instance.playerCount = msg.count;
+                }
+            }
+        }
+    });
+
+    worker.on('error', (err) => {
+        console.error(`Worker ${newId} encountered an error:`, err);
+        worker.terminate();
+    });
+
+    worker.on('exit', (code) => {
+        console.log(`Worker ${newId} exited with code ${code}. Cleaning up active instances.`);
+        const list = activeInstances[baseName];
+        if (list) {
+            const index = list.findIndex(i => i.id === newId);
+            if (index !== -1) list.splice(index, 1);
+        }
+    });
+
+    const api = {
+      destroy: () => {
+        worker.terminate();
+      }
+    };
+    
+    instances.push({ id: newId, name: baseName, playerLimit: 50, worker, api });
+    console.log(`Provisioned new server child instance: ${newId}`);
     return newId;
   }
 

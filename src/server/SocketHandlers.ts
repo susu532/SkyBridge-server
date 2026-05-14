@@ -5,6 +5,9 @@ import { GameContext } from "./GameContext";
 // Also need itemsData for combat damage calculation? Let's just require it here.
 import itemsData from "../../data/items.json";
 
+import { encodeRLE } from "../game/RLE";
+import { MobTypes } from "../game/Constants";
+
 export function setupSocketHandlers(ctx: GameContext) {
   const {
       ioNamespace, chunkManager, worldName, isSkyCastlesMode, isHubMode,
@@ -26,7 +29,6 @@ ctx.ioNamespace.on("connection", (socket) => {
     // Send current state to new player
     socket.emit("init", {
       players,
-      blockChanges: chunkManager.getBlockChangesDict(),
       droppedItems,
       mobs,
       minions,
@@ -39,11 +41,40 @@ ctx.ioNamespace.on("connection", (socket) => {
       socket.emit("skyCastlesSync", JSON.parse(state.lastSkyCastlesSyncJSON));
     }
 
+    socket.on("requestChunkChanges", (data) => {
+      if (!data || data.cx === undefined || data.cz === undefined) return;
+      const { cx, cz } = data;
+      const changes = chunkManager.getChunkChanges(cx, cz, false);
+      if (changes) {
+        let changedCount = 0;
+        const patches: number[] = [];
+        for (let i = 0; i < changes.length; i++) {
+          if (changes[i] !== 0) {
+            changedCount++;
+            if (changedCount <= 15) {
+              patches.push(i, changes[i]);
+            }
+          }
+        }
+        
+        if (changedCount > 0 && changedCount <= 15) {
+          socket.emit("chunkData", { cx, cz, patch: patches });
+        } else if (changedCount > 0) {
+          const compressed = encodeRLE(changes);
+          socket.emit("chunkData", { cx, cz, data: Array.from(compressed) });
+        } else {
+          socket.emit("chunkData", { cx, cz, data: null });
+        }
+      } else {
+        socket.emit("chunkData", { cx, cz, data: null });
+      }
+    });
+
     // Handle player join
     socket.on("join", (data) => {
       let team = null;
 
-      if (mode.name.startsWith("/skycastles") || mode.name.startsWith("/voidtrail")) {
+      if (mode.name.startsWith("/skycastles")) {
         let b = 0;
         let r = 0;
         Object.values(players).forEach((p) => {
@@ -314,8 +345,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       if (isMob) {
         const mob = mobs[targetId];
         if (mob && knockbackDir) {
-          const mobWidth = mob.type === "Morvane" ? 3.0 : 0.6;
-          const mobHeight = mob.type === "Morvane" ? 9.0 : 1.8;
+          const mobWidth = mob.type === MobTypes.MORVANE ? 3.0 : 0.6;
+          const mobHeight = mob.type === MobTypes.MORVANE ? 9.0 : 1.8;
           let dx = Math.abs(attacker.position.x - mob.position.x) - mobWidth / 2;
           let dy = 0;
           if (attacker.position.y > mob.position.y + mobHeight) {
@@ -329,7 +360,7 @@ ctx.ioNamespace.on("connection", (socket) => {
           if (dz < 0) dz = 0;
 
           const distSq = dx * dx + dy * dy + dz * dz;
-          const maxDistSquared = mob.type === "Morvane" ? 49 : 64; // Relaxed validation to prevent jitter from false rejections
+          const maxDistSquared = mob.type === MobTypes.MORVANE ? 49 : 64; // Relaxed validation to prevent jitter from false rejections
           if (distSq > maxDistSquared) return; // Validation
 
           if (mob.team && attacker.team && mob.team === attacker.team) return;
@@ -341,9 +372,9 @@ ctx.ioNamespace.on("connection", (socket) => {
           }
 
           if (mob.health <= 0) {
-            if (mob.type === "Morvane" && mob.team) {
+            if (mob.type === MobTypes.MORVANE && mob.team) {
               morvaneDead[mob.team] = true;
-              handleMorvaneDeath(mob.team);
+              handleMorvaneDeath();
               ioNamespace.emit("mobDespawned", targetId);
             } else {
               broadcastToNearby(
@@ -357,10 +388,12 @@ ctx.ioNamespace.on("connection", (socket) => {
             delete mobs[targetId];
             mobBuffers.delete(targetId);
           } else {
-            mob.velocity.x = knockbackDir.x * 1.5;
-            mob.velocity.z = knockbackDir.z * 1.5;
-            mob.velocity.y = 6;
-            mob.knockbackTimer = 0.5;
+            if (mob.type !== MobTypes.MORVANE) {
+              mob.velocity.x = knockbackDir.x * 1.5;
+              mob.velocity.z = knockbackDir.z * 1.5;
+              mob.velocity.y = 6;
+              mob.knockbackTimer = 0.5;
+            }
           }
           pendingMobHits.push({
             id: targetId,
@@ -399,21 +432,21 @@ ctx.ioNamespace.on("connection", (socket) => {
           if (target.health === 0 && !target.isDead) {
             target.isDead = true;
             target.deaths = (target.deaths || 0) + 1;
-            attacker.kills = (attacker.kills || 0) + 1;
+            if (attacker) attacker.kills = (attacker.kills || 0) + 1;
             pendingPlayerUpdates.add(socket.id);
             
             ioNamespace.emit("playerStatsUpdate", { 
               id: socket.id, 
-              kills: attacker.kills, 
-              deaths: attacker.deaths 
+              kills: attacker?.kills || 0, 
+              deaths: attacker?.deaths || 0 
             });
             ioNamespace.emit("playerStatsUpdate", { 
               id: targetId, 
-              kills: target.kills, 
-              deaths: target.deaths 
+              kills: target?.kills || 0, 
+              deaths: target?.deaths || 0 
             });
 
-            let deathMessage = `${target.name} was slain by ${attacker.name}`;
+            let deathMessage = `${target.name} was slain by ${attacker?.name || 'unknown'}`;
             ioNamespace.emit("chatMessage", {
               sender: "System",
               message: deathMessage,
@@ -431,7 +464,7 @@ ctx.ioNamespace.on("connection", (socket) => {
             target.isDead = false;
             target.lastRespawnTime = Date.now();
             const tRespawnData = mode.getRespawnPosition(
-              target.id,
+              targetId,
               target,
               chunkManager,
               bakedBlocks,
@@ -512,7 +545,7 @@ ctx.ioNamespace.on("connection", (socket) => {
       try {
         // Socket.IO receives Node 'Buffer' in the backend
         let view: DataView;
-        if (Buffer.isBuffer(buf)) {
+        if (Buffer.isBuffer(buf) || buf instanceof Uint8Array) {
           view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
         } else {
           view = new DataView(buf as ArrayBuffer);
@@ -523,6 +556,7 @@ ctx.ioNamespace.on("connection", (socket) => {
         const rx = view.getFloat32(12);
         const ry = view.getFloat32(16);
 
+        let significantChange = true;
         if (player.position) {
           if (
             player.isDead ||
@@ -543,13 +577,27 @@ ctx.ioNamespace.on("connection", (socket) => {
             });
             return;
           }
+          if (player.rotation) {
+            const rxDiff = Math.abs(player.rotation.x - rx);
+            const ryDiff = Math.abs(player.rotation.y - ry);
+            if (distSq < 0.0001 && rxDiff < 0.01 && ryDiff < 0.01) {
+              significantChange = false;
+            }
+          }
         }
 
-        const newPos = { x: px, y: py, z: pz };
-        player.position = newPos;
-        player.rotation = { x: rx, y: ry, z: 0 };
-
-        pendingPlayerUpdates.add(socket.id);
+        if (significantChange) {
+          player.position.x = px;
+          player.position.y = py;
+          player.position.z = pz;
+          if (player.rotation) {
+             player.rotation.x = rx;
+             player.rotation.y = ry;
+          } else {
+             player.rotation = { x: rx, y: ry, z: 0 };
+          }
+          pendingPlayerUpdates.add(socket.id);
+        }
       } catch (e) {
         console.error("Invalid moveP buffer length");
       }
@@ -576,61 +624,25 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     socket.on("playerState", (state: any) => {
       if (!players[socket.id]) return;
-      players[socket.id].isFlying = state.isFlying;
-      players[socket.id].isSwimming = state.isSwimming;
-      players[socket.id].isCrouching = state.isCrouching;
-      players[socket.id].isSprinting = state.isSprinting;
-      players[socket.id].isSwinging = state.isSwinging;
-      players[socket.id].isGliding = state.isGliding;
-      players[socket.id].isBlocking = state.isBlocking;
-      players[socket.id].swingSpeed = state.swingSpeed;
-      players[socket.id].isGrounded = state.isGrounded;
-      players[socket.id].heldItem = state.heldItem;
-      players[socket.id].offHandItem = state.offHandItem;
-      players[socket.id].defense = state.defense;
-      if (state.maxHealth !== undefined)
-        players[socket.id].maxHealth = state.maxHealth;
-      pendingPlayerUpdates.add(socket.id);
-    });
-
-    // Handle legacy player movement
-    socket.on("move", (data) => {
-      const player = players[socket.id];
-      if (player) {
-        if (player.isDead) return;
-
-        // Anti-cheat: distance limit per tick
-        if (player.position) {
-          const dx = player.position.x - data.position.x;
-          const dy = player.position.y - data.position.y;
-          const dz = player.position.z - data.position.z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq > 900) {
-            // Teleporting more than 30 blocks instantly is invalid
-            socket.emit("playerRespawn", {
-              id: socket.id,
-              position: player.position,
-            });
-            return;
-          }
-        }
-
-        player.position = data.position;
-        player.rotation = data.rotation;
-        player.isFlying = data.isFlying;
-        player.isSwimming = data.isSwimming;
-        player.isCrouching = data.isCrouching;
-        player.isSprinting = data.isSprinting;
-        player.isSwinging = data.isSwinging;
-        player.swingSpeed = data.swingSpeed;
-        player.isGrounded = data.isGrounded;
-        player.heldItem = data.heldItem;
-        player.offHandItem = data.offHandItem || 0;
-        player.defense = data.defense || 0;
-        if (data.maxHealth !== undefined) player.maxHealth = data.maxHealth;
-
-        pendingPlayerUpdates.add(socket.id);
+      const p = players[socket.id];
+      let changed = false;
+      if (p.isFlying !== state.isFlying) { p.isFlying = state.isFlying; changed = true; }
+      if (p.isSwimming !== state.isSwimming) { p.isSwimming = state.isSwimming; changed = true; }
+      if (p.isCrouching !== state.isCrouching) { p.isCrouching = state.isCrouching; changed = true; }
+      if (p.isSprinting !== state.isSprinting) { p.isSprinting = state.isSprinting; changed = true; }
+      if (p.isSwinging !== state.isSwinging) { p.isSwinging = state.isSwinging; changed = true; }
+      if (p.isGliding !== state.isGliding) { p.isGliding = state.isGliding; changed = true; }
+      if (p.isBlocking !== state.isBlocking) { p.isBlocking = state.isBlocking; changed = true; }
+      if (p.swingSpeed !== state.swingSpeed) { p.swingSpeed = state.swingSpeed; changed = true; }
+      if (p.isGrounded !== state.isGrounded) { p.isGrounded = state.isGrounded; changed = true; }
+      if (p.heldItem !== state.heldItem) { p.heldItem = state.heldItem; changed = true; }
+      if (p.offHandItem !== state.offHandItem) { p.offHandItem = state.offHandItem; changed = true; }
+      if (p.defense !== state.defense) { p.defense = state.defense; changed = true; }
+      if (state.maxHealth !== undefined && p.maxHealth !== state.maxHealth) {
+        p.maxHealth = state.maxHealth;
+        changed = true;
       }
+      if (changed) pendingPlayerUpdates.add(socket.id);
     });
 
     // Handle block changes
@@ -832,7 +844,7 @@ ctx.ioNamespace.on("connection", (socket) => {
     });
 
     socket.on("spawnMob", (data) => {
-      if (!mode.allowPlayerMobSpawns && data?.type !== "Morvane") return;
+      if (!mode.allowPlayerMobSpawns && data?.type !== MobTypes.MORVANE) return;
       if (!data || !data.type || !data.position) return;
       const { type, position, level, team } = data;
 
@@ -840,14 +852,14 @@ ctx.ioNamespace.on("connection", (socket) => {
       if (
         Object.keys(mobs).length >
           Math.min(600, Object.keys(players).length * 12) &&
-        type !== "Morvane"
+        type !== MobTypes.MORVANE
       )
         return;
 
       // Prevent duplicate mobs at the same location
       for (const id in mobs) {
         const m = mobs[id];
-        const distLimit = type === "Morvane" ? 50 : 0.5;
+        const distLimit = type === MobTypes.MORVANE ? 50 : 0.5;
         if (
           m.type === type &&
           Math.abs(m.position.x - position.x) < distLimit &&
