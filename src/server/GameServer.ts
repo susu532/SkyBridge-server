@@ -4,6 +4,7 @@ import { GameModeInfo } from "./modes/GameMode";
 import { ChunkManager } from "./ChunkManager";
 import { chatModerator } from "./ChatModerator";
 import { parentPort } from "worker_threads";
+import { encodePacket } from "./WSHelpers";
 import {
   getTerrainHeight,
   getTerrainMinHeight,
@@ -76,6 +77,8 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
     const pcx = Math.floor(positionx / PLAYER_CELL_SIZE);
     const pcz = Math.floor(positionz / PLAYER_CELL_SIZE);
 
+    let packet: any = null;
+
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) {
         const key = getCellKey(pcx + dx, pcz + dz);
@@ -84,7 +87,14 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
           for (const p of cellPlayers) {
             if (p.id !== excludeSocketId) {
               const sock = ioNamespace.sockets.get(p.id);
-              if (sock) sock.emit(eventName, data);
+              if (sock) {
+                if (sock.ws && typeof sock.ws.send === 'function') {
+                  if (!packet) packet = encodePacket(eventName, [data]);
+                  sock.ws.send(packet);
+                } else {
+                  sock.emit(eventName, data);
+                }
+              }
             }
           }
         }

@@ -84,66 +84,50 @@ export function tickMobs(ctx: GameContext, delta: number, now: number, fastGetBl
   }
 
   if (movedCount > 0) {
-    for (const pId in players) {
-      const p = players[pId];
-      if (!p) continue;
-      const pcx = Math.floor(p.position.x / PLAYER_CELL_SIZE);
-      const pcz = Math.floor(p.position.z / PLAYER_CELL_SIZE);
-      
-      let totalCount = 0;
-      let totalIdStrLen = 0;
-      
-      const cellKeysToCheck = [
-          getCellKey(pcx, pcz),
-          getCellKey(pcx - 1, pcz), getCellKey(pcx + 1, pcz),
-          getCellKey(pcx, pcz - 1), getCellKey(pcx, pcz + 1),
-          getCellKey(pcx - 1, pcz - 1), getCellKey(pcx + 1, pcz - 1),
-          getCellKey(pcx - 1, pcz + 1), getCellKey(pcx + 1, pcz + 1),
-      ];
+    let totalCount = 0;
+    let totalIdStrLen = 0;
 
-      for (const key of cellKeysToCheck) {
-          const cellUpdates = hoistedUpdatesByGrid.get(key);
-          if (cellUpdates) {
-             for (const mId in cellUpdates) {
-                 totalCount++;
-                 totalIdStrLen += Buffer.byteLength(mId, 'utf8');
-             }
-          }
+    for (const gridKey of hoistedUpdatesByGrid.keys()) {
+      const cellUpdates = hoistedUpdatesByGrid.get(gridKey);
+      if (cellUpdates) {
+        for (const mId in cellUpdates) {
+          totalCount++;
+          totalIdStrLen += Buffer.byteLength(mId, 'utf8');
+        }
       }
+    }
       
-      if (totalCount > 0) {
-         const size = 2 + (totalCount * 1) + totalIdStrLen + (totalCount * 4 * 4) + (totalCount * 4);
-         const buf = Buffer.allocUnsafe(size);
-         let offset = 0;
-         buf.writeUInt16LE(totalCount, offset); offset += 2;
+    if (totalCount > 0) {
+      const size = 2 + (totalCount * 1) + totalIdStrLen + (totalCount * 4 * 4) + (totalCount * 4);
+      const buf = Buffer.allocUnsafe(size);
+      let offset = 0;
+      buf.writeUInt16LE(totalCount, offset); offset += 2;
          
-         for (const key of cellKeysToCheck) {
-            const cellUpdates = hoistedUpdatesByGrid.get(key);
-            if (cellUpdates) {
-               for (const mId in cellUpdates) {
-                  const idLen = Buffer.byteLength(mId, 'utf8');
-                  buf.writeUInt8(idLen, offset); offset++;
-                  buf.write(mId, offset, idLen, 'utf8'); offset += idLen;
+      for (const gridKey of hoistedUpdatesByGrid.keys()) {
+        const cellUpdates = hoistedUpdatesByGrid.get(gridKey);
+        if (cellUpdates) {
+          for (const mId in cellUpdates) {
+            const idLen = Buffer.byteLength(mId, 'utf8');
+            buf.writeUInt8(idLen, offset); offset++;
+            buf.write(mId, offset, idLen, 'utf8'); offset += idLen;
                   
-                  let floatOffset = offset;
-                  if (floatOffset % 4 !== 0) {
-                      const padding = 4 - (floatOffset % 4);
-                      buf.fill(0, floatOffset, floatOffset + padding);
-                      floatOffset += padding;
-                  }
-                  offset = floatOffset;
-                  
-                  const floats = cellUpdates[mId];
-                  for (let f = 0; f < 4; f++) {
-                      buf.writeFloatLE(floats[f], offset);
-                      offset += 4;
-                  }
-               }
+            let floatOffset = offset;
+            if (floatOffset % 4 !== 0) {
+              const padding = 4 - (floatOffset % 4);
+              buf.fill(0, floatOffset, floatOffset + padding);
+              floatOffset += padding;
             }
-         }
-         const sock = ioNamespace.sockets.get(pId);
-         if (sock) sock.volatile.emit("mobsUpdateB", buf.subarray(0, offset));
+            offset = floatOffset;
+                  
+            const floats = cellUpdates[mId];
+            for (let f = 0; f < 4; f++) {
+              buf.writeFloatLE(floats[f], offset);
+              offset += 4;
+            }
+          }
+        }
       }
+      ioNamespace.emit("mobsUpdateB", buf.subarray(0, offset));
     }
   }
 }

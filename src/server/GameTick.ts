@@ -120,11 +120,15 @@ export function tick(ctx: GameContext, delta: number) {
 
     // Player updates (Global Broadcast for scalability)
     if (pendingPlayerUpdates.size > 0) {
-      hoistedUpdatesByGrid.clear();
+      let totalCount = 0;
+      let totalIdStrLen = 0;
 
       for (const id of pendingPlayerUpdates) {
         const p = players[id];
         if (p && !p.isDead) {
+          totalCount++;
+          totalIdStrLen += Buffer.byteLength(id, 'utf8');
+
           let stateMask = 0;
           if (p.isFlying) stateMask |= 1;
           if (p.isSwimming) stateMask |= 2;
@@ -149,168 +153,50 @@ export function tick(ctx: GameContext, delta: number) {
           packedData[8] = p.offHandItem || 0;
           packedData[9] = p.defense || 0;
           packedData[10] = Math.floor(p.health || 0);
-
-          const pcx = Math.floor(p.position.x / PLAYER_CELL_SIZE);
-          const pcz = Math.floor(p.position.z / PLAYER_CELL_SIZE);
-          const key = getCellKey(pcx, pcz);
-          let cellUpdates = hoistedUpdatesByGrid.get(key);
-          if (!cellUpdates) {
-            cellUpdates = {};
-            hoistedUpdatesByGrid.set(key, cellUpdates);
-          }
-          cellUpdates[id] = packedData;
         }
       }
 
-      for (const pId in players) {
-        const p = players[pId];
-        if (!p) continue;
-        
-        const pcx = Math.floor(p.position.x / PLAYER_CELL_SIZE);
-        const pcz = Math.floor(p.position.z / PLAYER_CELL_SIZE);
-        
-        // Count number of distinct updates to construct binary payload
-        let totalCount = 0;
-        let totalIdStrLen = 0;
-        
-        const cellKeysToCheck = [
-          getCellKey(pcx, pcz),
-          getCellKey(pcx - 1, pcz), getCellKey(pcx + 1, pcz),
-          getCellKey(pcx, pcz - 1), getCellKey(pcx, pcz + 1),
-          getCellKey(pcx - 1, pcz - 1), getCellKey(pcx + 1, pcz - 1),
-          getCellKey(pcx - 1, pcz + 1), getCellKey(pcx + 1, pcz + 1),
-          // dx=2
-          getCellKey(pcx - 2, pcz - 2), getCellKey(pcx - 1, pcz - 2), getCellKey(pcx, pcz - 2), getCellKey(pcx + 1, pcz - 2), getCellKey(pcx + 2, pcz - 2),
-          getCellKey(pcx - 2, pcz - 1), getCellKey(pcx + 2, pcz - 1),
-          getCellKey(pcx - 2, pcz), getCellKey(pcx + 2, pcz),
-          getCellKey(pcx - 2, pcz + 1), getCellKey(pcx + 2, pcz + 1),
-          getCellKey(pcx - 2, pcz + 2), getCellKey(pcx - 1, pcz + 2), getCellKey(pcx, pcz + 2), getCellKey(pcx + 1, pcz + 2), getCellKey(pcx + 2, pcz + 2),
-        ];
-
-        for (const key of cellKeysToCheck) {
-            const cellUpdates = hoistedUpdatesByGrid.get(key);
-            if (cellUpdates) {
-               for (const id in cellUpdates) {
-                   totalCount++;
-                   totalIdStrLen += Buffer.byteLength(id, 'utf8');
-               }
-            }
-        }
-        
-        if (totalCount > 0) {
-           // Provide safe maximum overhead per player for alignment padding (up to 3 extra bytes per player)
+      if (totalCount > 0) {
            const size = 2 + (totalCount * 1) + totalIdStrLen + (totalCount * 11 * 4) + (totalCount * 4);
            const buf = Buffer.allocUnsafe(size);
            let offset = 0;
            buf.writeUInt16LE(totalCount, offset); offset += 2;
            
-           for (const key of cellKeysToCheck) {
-              const cellUpdates = hoistedUpdatesByGrid.get(key);
-              if (cellUpdates) {
-                 for (const id in cellUpdates) {
-                    const idLen = Buffer.byteLength(id, 'utf8');
-                    buf.writeUInt8(idLen, offset); offset++;
-                    buf.write(id, offset, idLen, 'utf8'); offset += idLen;
-                    
-                    let floatOffset = offset;
-                    if (floatOffset % 4 !== 0) {
-                        const padding = 4 - (floatOffset % 4);
-                        buf.fill(0, floatOffset, floatOffset + padding);
-                        floatOffset += padding;
-                    }
-                    offset = floatOffset;
-                    
-                    const floats = cellUpdates[id];
-                    for (let f = 0; f < 11; f++) {
-                        buf.writeFloatLE(floats[f], offset);
-                        offset += 4;
-                    }
-                 }
-              }
+           for (const id of pendingPlayerUpdates) {
+             const p = players[id];
+             if (p && !p.isDead) {
+                const idLen = Buffer.byteLength(id, 'utf8');
+                buf.writeUInt8(idLen, offset); offset++;
+                buf.write(id, offset, idLen, 'utf8'); offset += idLen;
+                
+                let floatOffset = offset;
+                if (floatOffset % 4 !== 0) {
+                    const padding = 4 - (floatOffset % 4);
+                    buf.fill(0, floatOffset, floatOffset + padding);
+                    floatOffset += padding;
+                }
+                offset = floatOffset;
+                
+                const floats = p.packedData as Float32Array;
+                for (let f = 0; f < 11; f++) {
+                    buf.writeFloatLE(floats[f], offset);
+                    offset += 4;
+                }
+             }
            }
            
-           const sock = ioNamespace.sockets.get(pId);
-           if (sock && sock.volatile && sock.volatile.emit) {
-             sock.volatile.emit("playersUpdateB", buf.subarray(0, offset));
-           } else if (sock && sock.emit) {
-             sock.emit("playersUpdateB", buf.subarray(0, offset));
-           }
-        }
+           ioNamespace.emit("playersUpdateB", buf.subarray(0, offset));
       }
 
       pendingPlayerUpdates.clear();
     }
 
     if (pendingHits.length > 0) {
-      hoistedHitsByGrid.clear();
-      for (const h of pendingHits) {
-        const cx = Math.floor(h.position.x / PLAYER_CELL_SIZE);
-        const cz = Math.floor(h.position.z / PLAYER_CELL_SIZE);
-        const key = getCellKey(cx, cz);
-        let cellHits = hoistedHitsByGrid.get(key);
-        if (!cellHits) {
-          cellHits = [];
-          hoistedHitsByGrid.set(key, cellHits);
-        }
-        cellHits.push(h);
-      }
-      for (const pId in players) {
-        const p = players[pId];
-        if (!p) continue;
-        const pcx = Math.floor(p.position.x / PLAYER_CELL_SIZE);
-        const pcz = Math.floor(p.position.z / PLAYER_CELL_SIZE);
-        let mergedHits: any[] | null = null;
-        for (let dx = -2; dx <= 2; dx++) {
-          for (let dz = -2; dz <= 2; dz++) {
-             const key = getCellKey(pcx + dx, pcz + dz);
-             const cellHits = hoistedHitsByGrid.get(key);
-             if (cellHits) {
-                if (!mergedHits) mergedHits = [];
-                for (const h of cellHits) mergedHits.push(h);
-             }
-          }
-        }
-        if (mergedHits) {
-           const sock = ioNamespace.sockets.get(pId);
-           if (sock) sock.emit("batchedPlayerHits", mergedHits);
-        }
-      }
+      ioNamespace.emit("batchedPlayerHits", pendingHits);
       pendingHits.length = 0;
     }
     if (pendingMobHits.length > 0) {
-      hoistedMobHitsByGrid.clear();
-      for (const h of pendingMobHits) {
-        const cx = Math.floor(h.position.x / PLAYER_CELL_SIZE);
-        const cz = Math.floor(h.position.z / PLAYER_CELL_SIZE);
-        const key = getCellKey(cx, cz);
-        let cellHits = hoistedMobHitsByGrid.get(key);
-        if (!cellHits) {
-          cellHits = [];
-          hoistedMobHitsByGrid.set(key, cellHits);
-        }
-        cellHits.push(h);
-      }
-      for (const pId in players) {
-        const p = players[pId];
-        if (!p) continue;
-        const pcx = Math.floor(p.position.x / PLAYER_CELL_SIZE);
-        const pcz = Math.floor(p.position.z / PLAYER_CELL_SIZE);
-        let mergedHits: any[] | null = null;
-        for (let dx = -2; dx <= 2; dx++) {
-          for (let dz = -2; dz <= 2; dz++) {
-             const key = getCellKey(pcx + dx, pcz + dz);
-             const cellHits = hoistedMobHitsByGrid.get(key);
-             if (cellHits) {
-                if (!mergedHits) mergedHits = [];
-                for (const h of cellHits) mergedHits.push(h);
-             }
-          }
-        }
-        if (mergedHits) {
-           const sock = ioNamespace.sockets.get(pId);
-           if (sock) sock.emit("batchedMobHits", mergedHits);
-        }
-      }
+      ioNamespace.emit("batchedMobHits", pendingMobHits);
       pendingMobHits.length = 0;
     }
     if (pendingRespawns.length > 0) {
