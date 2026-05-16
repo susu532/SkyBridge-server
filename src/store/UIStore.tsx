@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { create } from 'zustand';
 import { NPC } from '../game/NPC';
 
 interface UIState {
@@ -26,42 +26,30 @@ interface UIState {
   setCurrentNPC: (npc: NPC | null) => void;
 }
 
-const UIContext = createContext<UIState | null>(null);
+export const useUIStore = create<UIState>((set) => ({
+  isInventoryOpen: false,
+  isShopOpen: false,
+  isSettingsOpen: false,
+  isPauseMenuOpen: false,
+  isTyping: false,
+  isLocked: false,
+  isServerJoinOpen: false,
+  isLaunchMenuOpen: false,
+  isChestOpen: false,
+  isHUDVisible: true,
+  currentNPC: null,
+  setInventoryOpen: (open) => set({ isInventoryOpen: open }),
+  setShopOpen: (open) => set({ isShopOpen: open }),
+  setSettingsOpen: (open) => set({ isSettingsOpen: open }),
+  setPauseMenuOpen: (open) => set({ isPauseMenuOpen: open }),
+  setTyping: (typing) => set({ isTyping: typing }),
+  setLocked: (locked) => set({ isLocked: locked }),
+  setServerJoinOpen: (open) => set({ isServerJoinOpen: open }),
+  setLaunchMenuOpen: (open) => set({ isLaunchMenuOpen: open }),
+  setChestOpen: (open) => set({ isChestOpen: open }),
+  setHUDVisible: (visible) => set({ isHUDVisible: visible }),
+  setCurrentNPC: (npc) => set({ currentNPC: npc }),
+}));
 
-export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isInventoryOpen, setInventoryOpen] = useState(false);
-  const [isShopOpen, setShopOpen] = useState(false);
-  const [isSettingsOpen, setSettingsOpen] = useState(false);
-  const [isPauseMenuOpen, setPauseMenuOpen] = useState(false);
-  const [isTyping, setTyping] = useState(false);
-  const [isLocked, setLocked] = useState(false);
-  const [isServerJoinOpen, setServerJoinOpen] = useState(false);
-  const [isLaunchMenuOpen, setLaunchMenuOpen] = useState(false);
-  const [isChestOpen, setChestOpen] = useState(false);
-  const [isHUDVisible, setHUDVisible] = useState(true);
-  const [currentNPC, setCurrentNPC] = useState<NPC | null>(null);
+export const useUI = useUIStore;
 
-  return (
-    <UIContext.Provider value={{
-      isInventoryOpen, setInventoryOpen,
-      isShopOpen, setShopOpen,
-      isSettingsOpen, setSettingsOpen,
-      isPauseMenuOpen, setPauseMenuOpen,
-      isTyping, setTyping,
-      isLocked, setLocked,
-      isServerJoinOpen, setServerJoinOpen,
-      isLaunchMenuOpen, setLaunchMenuOpen,
-      isChestOpen, setChestOpen,
-      isHUDVisible, setHUDVisible,
-      currentNPC, setCurrentNPC
-    }}>
-      {children}
-    </UIContext.Provider>
-  );
-};
-
-export const useUI = () => {
-  const context = useContext(UIContext);
-  if (!context) throw new Error('useUI must be used within a UIProvider');
-  return context;
-};

@@ -218,6 +218,17 @@
       },
       "rotation": 0,
       "shopItems": []
+    },
+    {
+      "id": "hub_npc_island",
+      "name": "Sky Island",
+      "position": {
+        "x": 18,
+        "y": 1,
+        "z": 20
+      },
+      "rotation": 0,
+      "shopItems": []
     }
   ],
   "skybridge": [
@@ -537,6 +548,23 @@
       },
       "shopItems": [
         {
+          "type": 461,
+          "price": 400,
+          "currency": 501,
+          "metadata": {
+            "rarity": "Uncommon",
+            "stats": {
+              "damage": 50
+            }
+          }
+        },
+        {
+          "type": 462,
+          "price": 8,
+          "currency": 501,
+          "outputAmount": 16
+        },
+        {
           "type": 92,
           "price": 200,
           "currency": 501,
@@ -626,6 +654,23 @@
       "rotation": 3.14159,
       "shopItems": [
         {
+          "type": 461,
+          "price": 400,
+          "currency": 501,
+          "metadata": {
+            "rarity": "Uncommon",
+            "stats": {
+              "damage": 50
+            }
+          }
+        },
+        {
+          "type": 462,
+          "price": 8,
+          "currency": 501,
+          "outputAmount": 16
+        },
+        {
           "type": 89,
           "price": 200,
           "currency": 501,
@@ -705,5 +750,24 @@
       ]
     }
   ],
-  "battleroyale": []
+  "battleroyale": [],
+  "skyisland": [
+    {
+      "id": "island_guide",
+      "name": "Island Guide",
+      "position": {
+        "x": 0,
+        "y": 66,
+        "z": -10
+      },
+      "rotation": 0,
+      "shopItems": [
+        {
+          "type": 461,
+          "price": 200,
+          "currency": 501
+        }
+      ]
+    }
+  ]
 }
