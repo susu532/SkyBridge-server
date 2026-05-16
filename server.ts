@@ -8,7 +8,7 @@ import { Worker, MessageChannel } from 'worker_threads';
 import { WebSocketServer } from 'ws';
 
 const ALLOWED_ORIGIN = 'https://starplex-io.vercel.app';
-const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale']);
+const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale','skyisland']);
 
 async function startServer() {
   const app = express();
