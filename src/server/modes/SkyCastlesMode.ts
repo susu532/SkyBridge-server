@@ -253,6 +253,9 @@ export class SkyCastlesMode implements GameModeInfo {
     const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
     if (bakedBlocks.has(key)) return bakedBlocks.get(key)!;
 
+    // Explicit Chests near tree
+    if (y === 5 && (x === 75 || x === -75) && z === 1) return BLOCK.CHEST;
+
     // Mid void chests
     if (y === 16 && x === 0 && z === 10) return BLOCK.CHEST;
     if (y === 16 && x === 0 && z === -9) return BLOCK.CHEST_REVERSED;

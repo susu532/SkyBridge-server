@@ -6,6 +6,7 @@ import { SkyCastlesMode } from './modes/SkyCastlesMode.ts';
 import { VoidTrailMode } from './modes/VoidTrailMode.ts';
 import { DungeonDelverMode } from './modes/DungeonDelverMode.ts';
 import { BattleRoyaleMode } from './modes/BattleRoyaleMode.ts';
+import { SkyIslandMode } from './modes/SkyIslandMode.ts';
 import { encodePacket, decodePacket } from './WSHelpers.ts';
 import { parentPort, workerData } from 'worker_threads';
 import { WebSocketServer } from 'ws';
@@ -21,6 +22,7 @@ function getModeFactory(name: string) {
   if (name === 'voidtrail') return new VoidTrailMode('/voidtrail');
   if (name === 'dungeondelver') return new DungeonDelverMode();
   if (name === 'battleroyale') return new BattleRoyaleMode();
+  if (name === 'skyisland') return new SkyIslandMode('/skyisland');
   return new HubMode();
 }
 

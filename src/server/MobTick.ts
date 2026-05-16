@@ -38,9 +38,9 @@ export function tickMobs(ctx: GameContext, delta: number, now: number, fastGetBl
     }
 
     if (!isMorvane && (mob.velocity.x !== 0 || mob.velocity.y !== 0 || mob.velocity.z !== 0 || mob.targetId)) {
-       mob.position.x += mob.velocity.x;
-       mob.position.y += mob.velocity.y;
-       mob.position.z += mob.velocity.z;
+       mob.position.x += mob.velocity.x * 0.05;
+       mob.position.y += mob.velocity.y * 0.05;
+       mob.position.z += mob.velocity.z * 0.05;
 
        mob.velocity.x *= 0.8;
        mob.velocity.z *= 0.8;

@@ -227,7 +227,7 @@ export class ChunkManager {
               for (let lz = 0; lz < CHUNK_SIZE; lz++) {
                 for (let lx = 0; lx < CHUNK_SIZE; lx++) {
                   const type = arr[lx | (lz << 4) | (ly << 8)];
-                  if (type !== 0) {
+                  if (type !== 65535) {
                     const wx = cx * CHUNK_SIZE + lx;
                     const wz = cz * CHUNK_SIZE + lz;
                     const wy = ly + WORLD_Y_OFFSET;

@@ -49,7 +49,7 @@ ctx.ioNamespace.on("connection", (socket) => {
         let changedCount = 0;
         const patches: number[] = [];
         for (let i = 0; i < changes.length; i++) {
-          if (changes[i] !== 0) {
+          if (changes[i] !== 65535) {
             changedCount++;
             if (changedCount <= 15) {
               patches.push(i, changes[i]);
@@ -342,9 +342,23 @@ ctx.ioNamespace.on("connection", (socket) => {
         damage = Math.max(0, Math.floor(clientDamage));
       }
 
+      // Minecraft-style Knockback calculation using attacker's yaw
+      const attackerYaw = attacker.rotation?.y || 0;
+      const kbForce = isSprinting ? 12 : 8;
+      
+      // Calculate dx, dy, dz velocity using attacker's rotation (yaw)
+      // Three.js rotation.y is straightforward radians. Math.sin/cos takes radians.
+      // - Math.sin(yaw) goes left/right realistically with ThreeJS rotation
+      // - Math.cos(yaw) goes forward/backward realistically with ThreeJS rotation
+      const serverKnockbackDir = {
+        x: -Math.sin(attackerYaw) * kbForce,
+        y: 0,
+        z: -Math.cos(attackerYaw) * kbForce
+      };
+
       if (isMob) {
         const mob = mobs[targetId];
-        if (mob && knockbackDir) {
+        if (mob) {
           const mobWidth = mob.type === MobTypes.MORVANE ? 3.0 : 0.6;
           const mobHeight = mob.type === MobTypes.MORVANE ? 9.0 : 1.8;
           let dx = Math.abs(attacker.position.x - mob.position.x) - mobWidth / 2;
@@ -389,8 +403,8 @@ ctx.ioNamespace.on("connection", (socket) => {
             mobBuffers.delete(targetId);
           } else {
             if (mob.type !== MobTypes.MORVANE) {
-              mob.velocity.x = knockbackDir.x * 1.5;
-              mob.velocity.z = knockbackDir.z * 1.5;
+              mob.velocity.x = serverKnockbackDir.x;
+              mob.velocity.z = serverKnockbackDir.z;
               mob.velocity.y = 6;
               mob.knockbackTimer = 0.5;
             }
@@ -398,7 +412,7 @@ ctx.ioNamespace.on("connection", (socket) => {
           pendingMobHits.push({
             id: targetId,
             damage,
-            knockbackDir,
+            knockbackDir: serverKnockbackDir,
             isCrit: clientIsCrit ?? _isCrit,
             attackerId: socket.id,
             position: { x: mob.position.x, z: mob.position.z },
@@ -427,7 +441,10 @@ ctx.ioNamespace.on("connection", (socket) => {
           actualDamage = Math.floor(actualDamage);
 
           target.health -= actualDamage;
-          if (actualDamage > 0) target.lastDamageTime = Date.now();
+          if (actualDamage > 0) {
+            target.lastDamageTime = Date.now();
+            pendingPlayerUpdates.add(targetId);
+          }
           if (target.health < 0) target.health = 0;
           if (target.health === 0 && !target.isDead) {
             target.isDead = true;
@@ -495,7 +512,7 @@ ctx.ioNamespace.on("connection", (socket) => {
           pendingHits.push({
             id: targetId,
             damage: actualDamage,
-            knockbackDir,
+            knockbackDir: serverKnockbackDir,
             attackerId: socket.id,
             isCrit: clientIsCrit ?? _isCrit,
             position: { x: target.position.x, z: target.position.z },

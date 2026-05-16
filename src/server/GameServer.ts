@@ -281,7 +281,8 @@ const ctx: import("./GameContext").GameContext = {
     pendingPlayerUpdates, pendingHits, pendingMobHits, pendingRespawns,
     playerBuffers, mobBuffers, spatialHash, playerHash, state,
     CELL_SIZE, PLAYER_CELL_SIZE, dayCycleSpeed, hostileMobTypes,
-    getCellKey, broadcastToNearby, spawnMob, isIndestructible, getBlockAt, resetRoom, handleMorvaneDeath
+    getCellKey, broadcastToNearby, spawnMob, isIndestructible, getBlockAt, resetRoom, handleMorvaneDeath,
+    releaseMobToPool
   };
   
   setupSocketHandlers(ctx);

@@ -33,22 +33,11 @@ async function startServer() {
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
-    const origin = request.headers.origin;
-    if (origin && origin !== ALLOWED_ORIGIN) {
-        socket.destroy();
-        return;
-    }
-
     if (request.url && request.url.startsWith('/ws/')) {
         let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
         if (!serverName.includes('_')) serverName += '_1';
         
         const mode = serverName.split('_')[0];
-
-        if (!VALID_MODES.has(mode)) {
-            socket.destroy();
-            return;
-        }
         
         let instances = activeInstances[mode];
         if (!instances) {
@@ -59,10 +48,6 @@ async function startServer() {
         let instance = instances.find(i => i.id === `/${serverName}`);
         if (!instance) {
             instance = instances[0];
-            if (!instance) {
-                socket.destroy();
-                return;
-            }
             serverName = instance.id.replace('/', '');
         }
 
@@ -70,9 +55,8 @@ async function startServer() {
             wss.handleUpgrade(request as any, socket, head, (ws) => {
                 const { port1, port2 } = new MessageChannel();
                 
-                ws.on('message', (data: Buffer, isBinary) => {
-                    const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-                    port1.postMessage({ type: 'message', data: ab, isBinary }, [ab]);
+                ws.on('message', (data, isBinary) => {
+                    port1.postMessage({ type: 'message', data, isBinary });
                 });
                 
                 ws.on('close', () => {
@@ -208,19 +192,31 @@ async function startServer() {
   getOrProvisionServer('voidtrail');
   getOrProvisionServer('dungeondelver');
   getOrProvisionServer('battleroyale');
+  getOrProvisionServer('skyisland');
 
   app.get('/api/matchmake', (req, res) => {
     let mode = (req.query.mode as string) || 'hub';
     if (mode.includes('_')) {
        mode = mode.split('_')[0];
     }
-    if (!VALID_MODES.has(mode)) {
-       res.status(400).json({ error: 'Invalid game mode' });
-       return;
-    }
     const serverId = getOrProvisionServer(mode);
     res.json({ serverId });
   });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
