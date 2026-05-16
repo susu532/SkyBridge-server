@@ -70,8 +70,9 @@ async function startServer() {
             wss.handleUpgrade(request as any, socket, head, (ws) => {
                 const { port1, port2 } = new MessageChannel();
                 
-                ws.on('message', (data, isBinary) => {
-                    port1.postMessage({ type: 'message', data, isBinary });
+                ws.on('message', (data: Buffer, isBinary) => {
+                    const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+                    port1.postMessage({ type: 'message', data: ab, isBinary }, [ab]);
                 });
                 
                 ws.on('close', () => {
