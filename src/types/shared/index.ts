@@ -12,7 +12,7 @@ export interface IMobState {
 
 export interface ITickMob extends IMobState {
   velocity: { x: number; y: number; z: number };
-  rotation: { x: number; y: number };
+  rotation: { x: number; y: number; z?: number };
   onGround: boolean;
   state: 'idle' | 'chase' | 'attack' | 'flee' | 'jump' | 'roam' | 'follow' | 'casting';
   stateTimer: number;
@@ -44,6 +44,12 @@ export interface ITickMob extends IMobState {
   spin?: { active: boolean; timer: number; radius: number; };
   lastCastTime?: number;
   castCooldown?: number;
+  lastSyncHealth?: number;
+  packedData?: Float32Array;
+  fleeTimer?: number;
+  knockbackTimer?: number;
+  lastHealth?: number;
+  isGrounded?: boolean;
 }
 
 export interface IPlayerUpdate {
@@ -61,7 +67,7 @@ export interface IPlayerUpdate {
 export interface IServerPlayer extends IPlayerUpdate {
   position: { x: number; y: number; z: number };
   velocity?: { x: number; y: number; z: number };
-  rotation: { x: number; y: number };
+  rotation: { x: number; y: number; z?: number };
   health: number;
   maxHealth?: number;
   isGrounded?: boolean;
@@ -87,6 +93,15 @@ export interface IServerPlayer extends IPlayerUpdate {
   equipment?: Record<string, any>;
   socket?: any;
   latency?: number;
+  lastSkillTime?: number;
+  deaths?: number;
+  kills?: number;
+  lastAttackTime?: number;
+  lastBlockTime?: number;
+  lastChatTime?: number;
+  lastDropTime?: number;
+  dropsInTick?: number;
+  isBot?: boolean;
 }
 
 export interface ISpawnParams {

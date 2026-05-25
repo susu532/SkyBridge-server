@@ -2,12 +2,15 @@ import { GameModeInfo } from "./GameMode";
 import { BLOCK, CHUNK_SIZE, WORLD_Y_OFFSET } from "../constants";
 import { ChunkManager } from "../ChunkManager";
 import { noise2D, noise3D, biomes } from "../../game/TerrainGenerator";
+import dungeonBakedBlocksData from "../../../data/dungeonBakedBlocks.json";
+
+const dungeonBakedBlocks = new Map<string, number>(Object.entries(dungeonBakedBlocksData));
 
 export class DungeonDelverMode implements GameModeInfo {
   name = "/dungeondelver";
   allowPvP = true;
-  allowMobSpawns = true;
-  allowPlayerMobSpawns = true;
+  allowMobSpawns = false;
+  allowPlayerMobSpawns = false;
 
   isIndestructible(
     x: number,
@@ -15,7 +18,11 @@ export class DungeonDelverMode implements GameModeInfo {
     z: number,
     bakedBlocks: Map<string, number>,
   ): boolean {
-    if (y <= -60 || y >= 50) return true;
+    if (Math.floor(x) === 0 && Math.floor(y) === 0 && Math.floor(z) === 0) return true;
+    const blockKey = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+    if (dungeonBakedBlocks.has(blockKey) && dungeonBakedBlocks.get(blockKey) !== 0) return true;
+
+    if (y <= -2 || y >= 7) return true;
     return false;
   }
 
@@ -39,18 +46,29 @@ export class DungeonDelverMode implements GameModeInfo {
     );
     if (chunkType !== undefined) return chunkType;
 
+    const blockKey = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+    if (dungeonBakedBlocks.has(blockKey)) return dungeonBakedBlocks.get(blockKey)!;
+
+    // Remove block generation outside playable bounds for performance
+    if (y < -2 || y > 7) return BLOCK.AIR;
+
     // Catacombs boundaries
-    if (Math.abs(x) > 200 || Math.abs(z) > 200) {
-      if (y >= -5 && y <= 15) return BLOCK.OBSIDIAN;
+    if (Math.abs(x) > 50 || Math.abs(z) > 50) {
+      if (Math.abs(x) > 55 || Math.abs(z) > 55) return BLOCK.AIR; // Prevent infinite continent of obsidian
+      if (y >= -2 && y <= 7) return BLOCK.OBSIDIAN;
     }
 
     // Outer bedrock/floor limits
-    if (y < -5) return BLOCK.OBSIDIAN;
-    if (y > 15) return BLOCK.STONE; // solid roof
+    if (y < -2) return BLOCK.OBSIDIAN; // This line won't be reached because of the if above, but leaving it or changing it is fine.
+
 
     // Spawn Room (safe area)
     const distSq = x * x + z * z;
     if (distSq < 100) { // Radius 10
+      // Put a solid chest at 0, 0, 0
+      if (Math.floor(x) === 0 && Math.floor(y) === 0 && Math.floor(z) === 0) {
+        return BLOCK.CHEST;
+      }
       // Spawn room floor: y=-1
       if (y === -1) {
         // pattern on the floor
@@ -93,13 +111,14 @@ export class DungeonDelverMode implements GameModeInfo {
     if (isCarved) {
       // Hollow space
       if (y >= 0 && y <= 4) {
-        // Lava pools natively occurring at y=0 occasionally
-        if (y === 0 && caveNoise > 0.5) return BLOCK.LAVA;
         return BLOCK.AIR;
       }
       
       // Floor details
       if (y === -1) {
+        // Lava pools natively occurring at y=-1 occasionally
+        if (caveNoise > 0.5) return BLOCK.LAVA;
+
         // Floor blocks
         const detailNoise = noise2D(x * 0.2, z * 0.2);
         if (detailNoise > 0.4) return BLOCK.DIRT;
@@ -125,12 +144,40 @@ export class DungeonDelverMode implements GameModeInfo {
     return BLOCK.STONE;
   }
 
+  onMobDeath(ctx: any, mob: any, attackerId?: string) {
+    if (attackerId && ctx.players[attackerId]) {
+      const attacker = ctx.players[attackerId];
+      attacker.kills = (attacker.kills || 0) + 1;
+      ctx.ioNamespace.emit("playerStatsUpdate", { 
+        id: attackerId, 
+        kills: attacker.kills, 
+        deaths: attacker.deaths 
+      });
+      ctx.pendingPlayerUpdates.add(attackerId);
+    }
+  }
+
   getRespawnPosition(
     playerId: string,
     playerState?: any,
     chunkManager?: ChunkManager,
     bakedBlocks?: Map<string, number>,
   ): { x: number; y: number; z: number; yaw?: number } {
+    if (chunkManager && bakedBlocks) {
+      for (let i = 0; i < 50; i++) {
+        const rx = Math.floor((Math.random() - 0.5) * 100);
+        const rz = Math.floor((Math.random() - 0.5) * 100);
+
+        const id0 = this.getBlockAt(rx, 0, rz, chunkManager, bakedBlocks);
+        const id1 = this.getBlockAt(rx, 1, rz, chunkManager, bakedBlocks);
+        const idFloor = this.getBlockAt(rx, -1, rz, chunkManager, bakedBlocks);
+
+        if (id0 === BLOCK.AIR && id1 === BLOCK.AIR && idFloor !== BLOCK.AIR && idFloor !== BLOCK.LAVA) {
+          return { x: rx + 0.5, y: 1, z: rz + 0.5 };
+        }
+      }
+    }
+
     const rx = (Math.random() - 0.5) * 12;
     const rz = (Math.random() - 0.5) * 12;
     return { x: rx, y: 1, z: rz };

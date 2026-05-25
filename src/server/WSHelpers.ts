@@ -4,20 +4,19 @@ export function encodePacket(event: string, args: any[]): Buffer | ArrayBuffer {
   // If args is exclusively a single buffer (binary mode)
   if (args.length === 1 && (args[0] instanceof ArrayBuffer || args[0] instanceof Float32Array || args[0] instanceof Uint16Array || Buffer.isBuffer(args[0]))) {
      const len = Buffer.byteLength(event);
-     const header = Buffer.alloc(1 + len);
-     header.writeUInt8(len, 0);
-     header.write(event, 1, len);
-     if (Buffer.isBuffer(args[0])) {
-         return Buffer.concat([header, args[0]]);
-     } else {
-         return Buffer.concat([header, Buffer.from(args[0] instanceof ArrayBuffer ? args[0] : (args[0] as ArrayBufferView).buffer)]);
-     }
+     const payloadBuf = Buffer.isBuffer(args[0]) ? args[0] : Buffer.from(args[0] instanceof ArrayBuffer ? args[0] : (args[0] as ArrayBufferView).buffer);
+     const totalLen = 1 + len + payloadBuf.length;
+     const buf = Buffer.allocUnsafe(totalLen);
+     buf.writeUInt8(len, 0);
+     buf.write(event, 1, len);
+     payloadBuf.copy(buf, 1 + len);
+     return buf;
   }
 
   // msgpack mode
   // Use a special prefix byte (e.g. 255) to indicate msgpack to distinguish from raw binary which has < 50 length
   const encoded = encode({ e: event, a: args });
-  const buf = Buffer.alloc(1 + encoded.length);
+  const buf = Buffer.allocUnsafe(1 + encoded.length);
   buf.writeUInt8(255, 0); // MSGPack prefix
   buf.set(encoded, 1);
   return buf;

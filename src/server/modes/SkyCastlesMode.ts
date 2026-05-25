@@ -21,7 +21,21 @@ export class SkyCastlesMode implements GameModeInfo {
     this.name = name;
   }
 
-  onInit?(server: {
+  onMobSpawned(mob: any) {
+    if (mob.type === "Morvane") {
+      mob.health = 5000;
+      mob.maxHealth = 5000;
+      mob.scale = 5;
+      mob.level = 100;
+    }
+  }
+
+  onMobDeath(ctx: GameContext, mob: any, attackerId?: string) {
+    if (mob.type === "Morvane" && mob.team && ctx.morvaneDead) {
+      ctx.morvaneDead[mob.team] = true;
+    }
+  }
+  onInit(server: {
     setBlock: (x: number, y: number, z: number, type: number) => void;
     spawnMob: (
       type: string,
@@ -48,9 +62,11 @@ export class SkyCastlesMode implements GameModeInfo {
         if (m.type === "Morvane" && m.team === target.team) {
           found = true;
           let hasP = false;
-          for (const _ in ctx.players) {
-            hasP = true;
-            break;
+          for (const id in ctx.players) {
+            if (!ctx.players[id].isBot) {
+              hasP = true;
+              break;
+            }
           }
           if (!hasP) {
             m.health = 5000;
@@ -66,14 +82,16 @@ export class SkyCastlesMode implements GameModeInfo {
         }
       }
       let hasP = false;
-      for (const _ in ctx.players) {
-        hasP = true;
-        break;
+      for (const id in ctx.players) {
+        if (!ctx.players[id].isBot) {
+          hasP = true;
+          break;
+        }
       }
       if (!hasP) {
-        ctx.morvaneDead[target.team] = false;
+        if (ctx.morvaneDead) ctx.morvaneDead[target.team] = false;
       }
-      if (!found && !ctx.morvaneDead[target.team]) {
+      if (!found && (!ctx.morvaneDead || !ctx.morvaneDead[target.team])) {
         ctx.spawnMob("Morvane", target.x, target.y, target.z, 200, target.team);
       }
     }
@@ -91,7 +109,7 @@ export class SkyCastlesMode implements GameModeInfo {
           if (mob.type === "Morvane") {
             mob.health -= 100;
             if (mob.health <= 0) {
-              if (mob.team) {
+              if (mob.team && ctx.morvaneDead) {
                 ctx.morvaneDead[mob.team] = true;
               }
               ctx.ioNamespace.emit("mobDespawned", mId);
@@ -113,9 +131,11 @@ export class SkyCastlesMode implements GameModeInfo {
     }
 
     let hasPlayersForReset = false;
-    for (const _ in ctx.players) {
-      hasPlayersForReset = true;
-      break;
+    for (const id in ctx.players) {
+      if (!ctx.players[id].isBot) {
+        hasPlayersForReset = true;
+        break;
+      }
     }
 
     if (hasPlayersForReset) {
@@ -169,12 +189,16 @@ export class SkyCastlesMode implements GameModeInfo {
       }
     }
 
-    if (ctx.state.gameState === "playing" && (ctx.morvaneDead.red || ctx.morvaneDead.blue)) {
-      ctx.handleMorvaneDeath();
+    if (ctx.state.gameState === "playing" && ctx.morvaneDead && (ctx.morvaneDead.red || ctx.morvaneDead.blue)) {
+      if (ctx.handleMorvaneDeath) ctx.handleMorvaneDeath({} as any);
     }
   }
 
   onResetRoom?(ctx: GameContext): void {
+    if (ctx.morvaneDead) {
+      ctx.morvaneDead.red = false;
+      ctx.morvaneDead.blue = false;
+    }
     ctx.spawnMob("Morvane", 0.5, 104, 200.5, 200, "blue");
     ctx.spawnMob("Morvane", 0.5, 104, -200.5, 200, "red");
   }

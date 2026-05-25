@@ -549,7 +549,7 @@
       "shopItems": [
         {
           "type": 461,
-          "price": 400,
+          "price": 900,
           "currency": 501,
           "metadata": {
             "rarity": "Uncommon",
@@ -559,12 +559,6 @@
           }
         },
         {
-          "type": 462,
-          "price": 8,
-          "currency": 501,
-          "outputAmount": 16
-        },
-        {
           "type": 92,
           "price": 200,
           "currency": 501,
@@ -572,7 +566,7 @@
         },
         {
           "type": 442,
-          "price": 400,
+          "price": 700,
           "currency": 501,
           "metadata": {
             "rarity": "Common",
@@ -606,20 +600,8 @@
           }
         },
         {
-          "type": 441,
-          "price": 100,
-          "currency": 501,
-          "metadata": {
-            "rarity": "Common",
-            "stats": {
-              "damage": 10,
-              "strength": 5
-            }
-          }
-        },
-        {
           "type": 443,
-          "price": 700,
+          "price": 1000,
           "currency": 501,
           "metadata": {
             "rarity": "Rare",
@@ -631,7 +613,7 @@
         },
         {
           "type": 445,
-          "price": 1000,
+          "price": 1300,
           "currency": 501,
           "metadata": {
             "rarity": "Epic",
@@ -655,7 +637,7 @@
       "shopItems": [
         {
           "type": 461,
-          "price": 400,
+          "price": 900,
           "currency": 501,
           "metadata": {
             "rarity": "Uncommon",
@@ -665,12 +647,6 @@
           }
         },
         {
-          "type": 462,
-          "price": 8,
-          "currency": 501,
-          "outputAmount": 16
-        },
-        {
           "type": 89,
           "price": 200,
           "currency": 501,
@@ -678,7 +654,7 @@
         },
         {
           "type": 442,
-          "price": 400,
+          "price": 700,
           "currency": 501,
           "metadata": {
             "rarity": "Common",
@@ -712,20 +688,8 @@
           }
         },
         {
-          "type": 441,
-          "price": 100,
-          "currency": 501,
-          "metadata": {
-            "rarity": "Common",
-            "stats": {
-              "damage": 10,
-              "strength": 5
-            }
-          }
-        },
-        {
           "type": 443,
-          "price": 700,
+          "price": 1000,
           "currency": 501,
           "metadata": {
             "rarity": "Rare",
@@ -737,7 +701,7 @@
         },
         {
           "type": 445,
-          "price": 1000,
+          "price": 1300,
           "currency": 501,
           "metadata": {
             "rarity": "Epic",

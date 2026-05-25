@@ -29,6 +29,7 @@ export class GameServerContext {
   minions: Record<string, IMinionState & { ownerId?: string, team?: string, targetId?: string, lastAttack?: number, vx?: number, vy?: number, vz?: number }> = {};
   
   pendingPlayerUpdates: Set<string> = new Set();
+  pendingBlockUpdates: any[] = [];
   pendingHits: any[] = [];
   pendingMobHits: any[] = [];
   pendingRespawns: any[] = [];

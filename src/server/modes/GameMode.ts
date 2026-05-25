@@ -14,4 +14,7 @@ export interface GameModeInfo {
   onSlowTick?(ctx: GameContext): void;
   onTick?(ctx: GameContext, delta: number, now: number): void;
   onResetRoom?(ctx: GameContext): void;
+  onMobSpawned?(mob: any): void;
+  onMobDeath?(ctx: GameContext, mob: any, attackerId?: string): void;
+  onPlayerDeath?(ctx: GameContext, player: any, attackerId?: string): void;
 }

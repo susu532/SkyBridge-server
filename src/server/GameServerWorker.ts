@@ -8,12 +8,35 @@ import { DungeonDelverMode } from './modes/DungeonDelverMode.ts';
 import { BattleRoyaleMode } from './modes/BattleRoyaleMode.ts';
 import { SkyIslandMode } from './modes/SkyIslandMode.ts';
 import { encodePacket, decodePacket } from './WSHelpers.ts';
-import { parentPort, workerData } from 'worker_threads';
+import { parentPort, workerData, Worker } from 'worker_threads';
 import { WebSocketServer } from 'ws';
+import path from 'path';
+
+import fs from 'fs';
 
 // Extract data passed from main thread via workerData
 const baseName = workerData?.BASE_NAME || 'hub';
 const instanceId = workerData?.INSTANCE_ID || '/hub_1';
+
+const genWorkerFile = path.join(process.cwd(), 'dist/src/server/GenWorker.cjs');
+let genWorkerModule = genWorkerFile;
+let genExecArgv: string[] = [];
+if (!fs.existsSync(genWorkerFile)) {
+    genWorkerModule = path.join(process.cwd(), 'src/server/GenWorker.ts');
+    genExecArgv = /\.ts$/.test(__filename) ? ['--require', 'tsx/cjs'] : [];
+}
+
+const genWorker = new Worker(genWorkerModule, {
+    execArgv: genExecArgv
+});
+
+genWorker.on('message', (msg) => {
+  if (msg.type === 'chunk_generated') {
+      if ((api as any) && (api as any).injectChunk) {
+          (api as any).injectChunk(msg.cx, msg.cz, msg.data);
+      }
+  }
+});
 
 function getModeFactory(name: string) {
   if (name === 'hub') return new HubMode();
@@ -142,7 +165,12 @@ class FakeSocket {
     ws.on('close', () => {
        for (const room of this.rooms) {
           const rm = this.nsp.rooms.get(room);
-          if (rm) rm.delete(this);
+          if (rm) {
+             rm.delete(this);
+             if (rm.size === 0) {
+                 this.nsp.rooms.delete(room);
+             }
+          }
        }
        this.nsp.sockets.delete(id);
        if (this.handlers['disconnect']) this.handlers['disconnect']();
@@ -170,7 +198,12 @@ class FakeSocket {
   leave(room: string) {
     this.rooms.delete(room);
     const rm = this.nsp.rooms.get(room);
-    if (rm) rm.delete(this);
+    if (rm) {
+      rm.delete(this);
+      if (rm.size === 0) {
+        this.nsp.rooms.delete(room);
+      }
+    }
   }
   
   disconnect(close: boolean) {
@@ -184,7 +217,7 @@ const fakeServer = {
   of: (name: string) => fakeIo
 };
 
-const api = createGameServer(fakeServer as any, db, mode);
+const api = createGameServer(fakeServer as any, db, mode, genWorker);
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -242,6 +275,7 @@ if (parentPort) {
        }
     } else if (msg && msg.type === 'destroy') {
       if (api && (api as any).destroy) (api as any).destroy();
+      genWorker.terminate();
       db.close();
       process.exit(0);
     }

@@ -27,8 +27,10 @@ const bakedBlocks = new Map<string, number>(Object.entries(bakedBlocksData));
 import { spawnMobsTick } from "./MobSpawner";
 
 import { IServerPlayer, ITickMob, IDroppedItemState, IMinionState } from "../types/shared";
+import { getRandomCutePlayerName } from "../game/CuteNames";
+import type { Worker } from "worker_threads";
 
-export function createGameServer(io: any, db: any, mode: GameModeInfo) {
+export function createGameServer(io: any, db: any, mode: GameModeInfo, genWorker?: Worker) {
   const isHubMode = mode.name.startsWith("/hub");
   const namespacePrefix = mode.name;
   const worldName = namespacePrefix.replace("/", "");
@@ -137,6 +139,18 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
     state.tick10sCount++;
     chunkManager.saveDirtyChunks();
 
+    let hasHumanPlayers = false;
+    for (const id in players) {
+      if (!players[id].isBot) {
+        hasHumanPlayers = true;
+        break;
+      }
+    }
+
+    if (!hasHumanPlayers) {
+      return;
+    }
+
     try {
       if (npcs.length > 0) {
         parentPort?.postMessage({
@@ -166,13 +180,14 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
   const minions: Record<string, IMinionState> = {};
 
   const mobPool: ITickMob[] = [];
-  function getMobFromPool() {
-    return mobPool.length > 0 ? mobPool.pop() : { velocity: {x: 0, y: 0, z: 0}, position: {x: 0, y: 0, z: 0} };
+  function getMobFromPool(): ITickMob {
+    return (mobPool.length > 0 ? mobPool.pop() : { velocity: {x: 0, y: 0, z: 0}, position: {x: 0, y: 0, z: 0} }) as ITickMob;
   }
   function releaseMobToPool(mob: ITickMob) {
     if (mobPool.length < 500) mobPool.push(mob);
   }
   const pendingPlayerUpdates = new Set<string>();
+  const pendingBlockUpdates: any[] = [];
   const pendingHits: any[] = [];
   const pendingMobHits: any[] = [];
   const pendingRespawns: any[] = [];
@@ -206,6 +221,11 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
 
     // If the chunk is literally empty/ungenerated, we could fall back to the game mode's terrain generator
     if (currentBlock === undefined) {
+      if (genWorker && !chunkManager.chunks.has(`${cx},${cz}`)) {
+         genWorker.postMessage({ type: 'generate', cx, cz, worldName, modeName: mode.name });
+         // Mark as generating so we don't spam requests. The 65535 array isn't placed yet.
+         // Wait, the client expects fallback. Let's just return mode.getBlockAt directly to not break falling collisions right now.
+      }
       currentBlock = mode.getBlockAt(x, y, z, chunkManager, bakedBlocks);
     }
 
@@ -213,6 +233,16 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
   }
 
   function getBlockAt(x: number, y: number, z: number) {
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    let currentBlock = chunkManager.getBlockFromChunk(cx, cz, ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE, Math.floor(y) - WORLD_Y_OFFSET, ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE);
+    
+    if (currentBlock === undefined) {
+      if (genWorker && !chunkManager.chunks.has(`${cx},${cz}`) && !chunkManager.dirtyChunks.has(`${cx},${cz}#gen`)) {
+         chunkManager.dirtyChunks.add(`${cx},${cz}#gen`); // tag to prevent spam
+         genWorker.postMessage({ type: 'generate', cx, cz, worldName, modeName: mode.name });
+      }
+    }
     return mode.getBlockAt(x, y, z, chunkManager, bakedBlocks);
   }
 
@@ -231,18 +261,13 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
       "Creeper",
       "Skeleton",
       "Slime",
-      "Morvane",
     ].includes(type);
 
     let mobLvl = 1;
     let hp = 100;
     let scale = 1;
 
-    if (type === "Morvane") {
-      hp = 5000;
-      scale = 5;
-      mobLvl = 100;
-    } else if (isHostile) {
+    if (isHostile) {
       if (level !== undefined && level >= 1) {
         mobLvl = level;
       } else {
@@ -257,6 +282,8 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
       }
       hp = 100 + (mobLvl - 1) * 20;
       scale = 1 + (mobLvl - 1) * 0.1;
+    } else if (level !== undefined) {
+      mobLvl = level;
     }
 
     const mob = getMobFromPool();
@@ -276,8 +303,11 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
     mob.isGrounded = false;
     mob.team = team;
 
+    if (mode.onMobSpawned) {
+      mode.onMobSpawned(mob);
+    }
+
     mobs[id] = mob;
-    // console.log(`Spawned Lv${mobLvl} ${type} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
     broadcastToNearby("mobSpawned", mob, x, z, 22500, null);
   }
 
@@ -288,7 +318,7 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo) {
 const ctx: import("./GameContext").GameContext = {
     ioNamespace, chunkManager, worldName, isSkyCastlesMode, isHubMode, db, mode,
     bakedBlocks, npcs, players, morvaneDead, droppedItems, mobs, minions,
-    pendingPlayerUpdates, pendingHits, pendingMobHits, pendingRespawns,
+    pendingPlayerUpdates, pendingBlockUpdates, pendingHits, pendingMobHits, pendingRespawns,
     playerBuffers, mobBuffers, spatialHash, playerHash, state,
     CELL_SIZE, PLAYER_CELL_SIZE, dayCycleSpeed, hostileMobTypes,
     getCellKey, broadcastToNearby, spawnMob, isIndestructible, getBlockAt, resetRoom, handleMorvaneDeath,
@@ -370,7 +400,7 @@ const ctx: import("./GameContext").GameContext = {
       p.maxHealth = 100;
       p.defense = 0;
       p.skills = {};
-      p.heldItem = 0;
+      p.heldItem = p.isBot ? 441 : 0;
       p.offHandItem = 0;
       p.isDead = false;
       p.isSpectator = false;
@@ -562,6 +592,70 @@ const ctx: import("./GameContext").GameContext = {
     });
   }
 
+  if ((worldName.startsWith("dungeondelver") || worldName.startsWith("skycastles")) && worldName.endsWith("_1")) {
+    const BOT_NAMES = [
+      "AdvenBot", "BotSir", "SirBot", "RoboDelver", "DungeonMech",
+      "MechaKnight", "Bot_73", "AutoLooter", "IronClad", "Botus",
+      "CyberDelver", "MechWarrior", "BotO_Mato", "DroidDelver",
+      "Automaton", "GearHead", "Botbert", "RoboPaladin", "Botimus",
+      "MechMage", "Sir_Clanks", "Bot_101", "Droid_X", "RoboRogue",
+      "Bot_Ninja", "Gear_Bot", "Auto_Bot", "Bot_Rex", "Robo_King",
+      "Bot_Queen", "Droid_Lord", "Mech_God"
+    ];
+
+    const isLavaColumnAt = (x: number, y: number, z: number): boolean => {
+      const bx = Math.floor(x);
+      const by = Math.floor(y - 0.1);
+      const bz = Math.floor(z);
+      const blk = getBlockAt(bx, by, bz);
+      if (blk === BLOCK.LAVA) return true;
+      const checkDepthY = Math.max(-20, by - 40);
+      for (let checkY = by; checkY >= checkDepthY; checkY--) {
+        const tempBlk = getBlockAt(bx, checkY, bz);
+        if (tempBlk === BLOCK.LAVA) return true;
+        if (isSolidBlock(tempBlk)) break;
+      }
+      return false;
+    };
+
+    const hasTeams = mode.name.startsWith("/skycastles") || mode.name.startsWith("/skybridge");
+    for (let i = 0; i < 30; i++) {
+      const id = "bot_" + Math.random().toString(36).substring(2, 9);
+      const team = hasTeams ? (Math.random() < 0.5 ? "blue" : "red") : undefined;
+      
+      let respawnData = mode.getRespawnPosition(id, { team }, chunkManager, bakedBlocks);
+      let retry = 0;
+      while (isLavaColumnAt(respawnData.x, respawnData.y, respawnData.z) && retry < 50) {
+        respawnData = mode.getRespawnPosition(id, { team }, chunkManager, bakedBlocks);
+        retry++;
+      }
+      const initialPos = {
+        x: respawnData.x,
+        y: respawnData.y,
+        z: respawnData.z,
+      };
+
+      players[id] = {
+        id,
+        isBot: true,
+        position: initialPos,
+        velocity: { x: 0, y: 0, z: 0 },
+        rotation: respawnData.yaw !== undefined ? { x: 0, y: respawnData.yaw, z: 0 } : { x: 0, y: 0, z: 0 },
+        skinSeed: id,
+        name: BOT_NAMES[i % BOT_NAMES.length] + Math.floor(Math.random()*10),
+        health: 100,
+        maxHealth: 100,
+        defense: 0,
+        team: team,
+        isDead: false,
+        heldItem: 441, // WOODEN_SWORD
+        offHandItem: 0,
+        joinTime: Date.now(),
+        lastRespawnTime: Date.now()
+      };
+    }
+  }
+
   // (Despawn loops moved to unified 10s background task)
 
   // Mob Spawning ticks - wait, that's done with setTimeout.
@@ -575,6 +669,16 @@ const ctx: import("./GameContext").GameContext = {
       intervals.forEach(clearInterval);
       ioNamespace.removeAllListeners();
       console.log(`Destroyed instance ${mode.name}`);
+    },
+    injectChunk: (cx: number, cz: number, data: ArrayBuffer | Buffer) => {
+       const key = `${cx},${cz}`;
+       chunkManager.dirtyChunks.delete(`${key}#gen`);
+       if (!chunkManager.chunks.has(key)) {
+          const arr = data instanceof ArrayBuffer 
+             ? new Uint16Array(data) 
+             : new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+          chunkManager.chunks.set(key, arr);
+       }
     },
     isDestroyed: () => state.isDestroyed,
     tick,

@@ -12,7 +12,7 @@ export function spawnMobsTick(ctx: GameContext, loopFn: () => void) {
   state.spawnTimeout = setTimeout(loopFn, state.spawnInterval);
 
   if (!mode.allowMobSpawns) return;
-  const playerIds = Object.keys(players);
+  const playerIds = Object.keys(players).filter(id => !players[id].isBot);
   if (playerIds.length === 0) return;
 
   const maxMobs = Math.min(400, playerIds.length * 6);
@@ -39,15 +39,21 @@ export function spawnMobsTick(ctx: GameContext, loopFn: () => void) {
       const randomPlayer = players[randomPlayerId];
       const angle = Math.random() * Math.PI * 2;
       const dist = 20 + Math.random() * 40;
-      const x = randomPlayer.position.x + Math.cos(angle) * dist;
-      const z = randomPlayer.position.z + Math.sin(angle) * dist;
+      const xTarget = randomPlayer.position.x + Math.cos(angle) * dist;
+      const zTarget = randomPlayer.position.z + Math.sin(angle) * dist;
+      const x = Math.floor(xTarget) + 0.5;
+      const z = Math.floor(zTarget) + 0.5;
 
       if (isNature(x, z, isSkyCastlesMode)) {
         let spawnY = -1;
         // Try to find a valid ground near the player's Y level
         let validSpawnYLevels: number[] = [];
-        const startY = 150; // Search from near the top, covering Skycastles peaks
-        const endY = -50; // Search down to near the bottom
+        let startY = 150; // Search from near the top, covering Skycastles peaks
+        let endY = -50; // Search down to near the bottom
+        if (mode.name.startsWith('/dungeondelver')) {
+          startY = 5;
+          endY = 0;
+        }
 
         // Search in the vertical column
         for (let y = startY; y > endY; y--) {
@@ -64,7 +70,8 @@ export function spawnMobsTick(ctx: GameContext, loopFn: () => void) {
             blockBelow !== BLOCK.SPRUCE_LEAVES &&
             blockBelow !== BLOCK.DARK_OAK_LEAVES &&
             blockBelow !== BLOCK.CHERRY_LEAVES;
-          const validSpace = blockAt === BLOCK.AIR && blockAbove === BLOCK.AIR;
+          const validSpace = !isSolidBlock(blockAt) && blockAt !== BLOCK.LAVA && 
+                             !isSolidBlock(blockAbove) && blockAbove !== BLOCK.LAVA;
 
           if (validGround && validSpace) {
             // Valid ground found.
@@ -101,6 +108,11 @@ export function spawnMobsTick(ctx: GameContext, loopFn: () => void) {
             else if (rand > 0.4) type = MobTypes.SKELETON;
             else if (rand > 0.2) type = MobTypes.CREEPER;
             else type = MobTypes.SLIME;
+          }
+
+          if (mode.name.startsWith('/dungeondelver') && (type === MobTypes.COW || type === MobTypes.SHEEP)) {
+             const enemies = [MobTypes.ZOMBIE, MobTypes.SKELETON, MobTypes.CREEPER, MobTypes.SLIME];
+             type = enemies[Math.floor(Math.random() * enemies.length)];
           }
 
           if ([MobTypes.ZOMBIE, MobTypes.CREEPER, MobTypes.SKELETON, MobTypes.SLIME].includes(type as MobTypes)) {

@@ -8,14 +8,24 @@ import itemsData from "../../data/items.json";
 import { encodeRLE } from "../game/RLE";
 import { MobTypes } from "../game/Constants";
 
+function getFloat32Array(buf: any): Float32Array {
+  if (Buffer.isBuffer(buf)) {
+    if (buf.byteOffset % 4 !== 0) {
+      return new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    }
+    return new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4));
+  }
+  return new Float32Array(buf);
+}
+
 export function setupSocketHandlers(ctx: GameContext) {
   const {
       ioNamespace, chunkManager, worldName, isSkyCastlesMode, isHubMode,
-      bakedBlocks, npcs, players, mobs, minions, droppedItems, morvaneDead,
-      pendingPlayerUpdates, pendingHits, pendingMobHits, pendingRespawns,
+      bakedBlocks, npcs, players, mobs, minions, droppedItems,
+      pendingPlayerUpdates, pendingBlockUpdates, pendingHits, pendingMobHits, pendingRespawns,
       state, dayCycleSpeed, CELL_SIZE, PLAYER_CELL_SIZE, hostileMobTypes,
       mode, db, getCellKey, broadcastToNearby, spawnMob, 
-      isIndestructible, getBlockAt, resetRoom, handleMorvaneDeath,
+      isIndestructible, getBlockAt, resetRoom,
       playerBuffers, mobBuffers, spatialHash, playerHash
   } = ctx;
 
@@ -72,6 +82,16 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     // Handle player join
     socket.on("join", (data) => {
+      // If it's dungeon delver, remove a bot to make room for human
+      if (worldName.startsWith("dungeondelver")) {
+          const botIds = Object.keys(players).filter(id => players[id].isBot);
+          if (botIds.length > 0) {
+              const botToRemove = botIds[0];
+              ioNamespace.emit("playerLeft", botToRemove);
+              delete players[botToRemove];
+          }
+      }
+
       let team = null;
 
       if (mode.name.startsWith("/skycastles")) {
@@ -121,6 +141,7 @@ ctx.ioNamespace.on("connection", (socket) => {
       players[socket.id] = {
         id: socket.id,
         position: initialPos,
+        velocity: { x: 0, y: 0, z: 0 },
         rotation:
           respawnData.yaw !== undefined
             ? { x: 0, y: respawnData.yaw, z: 0 }
@@ -145,6 +166,9 @@ ctx.ioNamespace.on("connection", (socket) => {
         22500,
         socket.id,
       );
+      // Emit back to the joining player so they add themselves to the leaderboard
+      socket.emit("playerJoined", players[socket.id]);
+      
       ioNamespace.emit("chatMessage", {
         sender: "System",
         message: `${finalName} joined the game`,
@@ -186,8 +210,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       if (id !== socket.id) return;
 
       if (players[id]) {
-        // Invulnerability for 5 seconds after respawn
-        if (Date.now() - (players[id].lastRespawnTime || 0) < 5000) return;
+        // Invulnerability for 5 seconds after respawn (unless dungeon delver)
+        if (!mode.name.startsWith("/dungeondelver") && Date.now() - (players[id].lastRespawnTime || 0) < 5000) return;
 
         players[id].health -= damage;
         players[id].lastDamageTime = Date.now();
@@ -204,6 +228,15 @@ ctx.ioNamespace.on("connection", (socket) => {
           } else if (id !== attackerId && players[attackerId]) {
             deathMessage = `${players[id].name} was slain by ${attackerName}`;
             players[attackerId].kills = (players[attackerId].kills || 0) + 1;
+            ioNamespace.to(attackerId).emit("killCelebration", {
+              victimName: players[id].name || "Player",
+              isPlayer: true,
+              isBot: players[id].isBot || false,
+              coinsRewarded: 35
+            });
+            if (worldName.startsWith("dungeondelver")) {
+              players[attackerId].health = players[attackerId].maxHealth || 100;
+            }
             ioNamespace.emit("playerStatsUpdate", { 
               id: attackerId, 
               kills: players[attackerId].kills, 
@@ -300,6 +333,7 @@ ctx.ioNamespace.on("connection", (socket) => {
         isSprinting,
         damage: clientDamage,
         isCrit: clientIsCrit,
+        isProjectile
       } = data;
 
       if (isHubMode && !isMob) return; // Prevent PvP in Hub
@@ -307,6 +341,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       if (!attacker) return;
 
       const now = Date.now();
+      // Allow slightly faster attacks for projectiles if someone shoots arrows really fast?
+      // But bow draws take time anyway.
       if (attacker.lastAttackTime && now - attacker.lastAttackTime < 220)
         return; // Max ~4.5 attacks per second over network to account for jitter
       attacker.lastAttackTime = now;
@@ -350,11 +386,27 @@ ctx.ioNamespace.on("connection", (socket) => {
       // Three.js rotation.y is straightforward radians. Math.sin/cos takes radians.
       // - Math.sin(yaw) goes left/right realistically with ThreeJS rotation
       // - Math.cos(yaw) goes forward/backward realistically with ThreeJS rotation
-      const serverKnockbackDir = {
+      let serverKnockbackDir = {
         x: -Math.sin(attackerYaw) * kbForce,
         y: 0,
         z: -Math.cos(attackerYaw) * kbForce
       };
+
+      if (knockbackDir && typeof knockbackDir.x === 'number' && typeof knockbackDir.z === 'number') {
+        if (isProjectile) {
+          serverKnockbackDir = {
+            x: knockbackDir.x * kbForce,
+            y: (knockbackDir.y || 0) * kbForce,
+            z: knockbackDir.z * kbForce
+          };
+        } else {
+          serverKnockbackDir = {
+            x: knockbackDir.x,
+            y: knockbackDir.y || 0,
+            z: knockbackDir.z
+          };
+        }
+      }
 
       if (isMob) {
         const mob = mobs[targetId];
@@ -375,7 +427,7 @@ ctx.ioNamespace.on("connection", (socket) => {
 
           const distSq = dx * dx + dy * dy + dz * dz;
           const maxDistSquared = mob.type === MobTypes.MORVANE ? 49 : 64; // Relaxed validation to prevent jitter from false rejections
-          if (distSq > maxDistSquared) return; // Validation
+          if (!isProjectile && distSq > maxDistSquared) return; // Validation
 
           if (mob.team && attacker.team && mob.team === attacker.team) return;
 
@@ -386,9 +438,21 @@ ctx.ioNamespace.on("connection", (socket) => {
           }
 
           if (mob.health <= 0) {
-            if (mob.type === MobTypes.MORVANE && mob.team) {
-              morvaneDead[mob.team] = true;
-              handleMorvaneDeath();
+            socket.emit("killCelebration", {
+              victimName: mob.type || "Mob",
+              isPlayer: false,
+              isBot: false,
+              coinsRewarded: 10
+            });
+
+            if (worldName.startsWith("dungeondelver")) {
+              attacker.health = attacker.maxHealth || 100;
+              pendingPlayerUpdates.add(socket.id);
+            }
+            if (mode.onMobDeath) {
+                mode.onMobDeath(ctx, mob, socket.id);
+            }
+            if (mob.type === MobTypes.MORVANE) {
               ioNamespace.emit("mobDespawned", targetId);
             } else {
               broadcastToNearby(
@@ -405,8 +469,8 @@ ctx.ioNamespace.on("connection", (socket) => {
             if (mob.type !== MobTypes.MORVANE) {
               mob.velocity.x = serverKnockbackDir.x;
               mob.velocity.z = serverKnockbackDir.z;
-              mob.velocity.y = 6;
-              mob.knockbackTimer = 0.5;
+              mob.velocity.y = 1.5; // Reduced from 6 which caused huge fly distance
+              mob.knockbackTimer = 0.5; // 500ms of knockback where AI is disabled
             }
           }
           pendingMobHits.push({
@@ -421,8 +485,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       } else {
         const target = players[targetId];
         if (target) {
-          // Invulnerability for 5 seconds after respawn
-          if (Date.now() - (target.lastRespawnTime || 0) < 5000) return;
+          // Invulnerability for 5 seconds after respawn (unless dungeon delver)
+          if (!mode.name.startsWith("/dungeondelver") && Date.now() - (target.lastRespawnTime || 0) < 5000) return;
 
           if (attacker.team && target.team && attacker.team === target.team)
             return;
@@ -430,7 +494,7 @@ ctx.ioNamespace.on("connection", (socket) => {
           const dx = attacker.position.x - target.position.x;
           const dy = attacker.position.y - target.position.y;
           const dz = attacker.position.z - target.position.z;
-          if (dx * dx + dy * dy + dz * dz > 100) return; // Validation
+          if (!isProjectile && dx * dx + dy * dy + dz * dz > 100) return; // Validation
 
           const targetDefense = target.defense || 0;
           const reduction = targetDefense / (targetDefense + 100);
@@ -449,18 +513,31 @@ ctx.ioNamespace.on("connection", (socket) => {
           if (target.health === 0 && !target.isDead) {
             target.isDead = true;
             target.deaths = (target.deaths || 0) + 1;
-            if (attacker) attacker.kills = (attacker.kills || 0) + 1;
+            if (attacker) {
+              attacker.kills = (attacker.kills || 0) + 1;
+              socket.emit("killCelebration", {
+                victimName: target.name || "Player",
+                isPlayer: true,
+                isBot: target.isBot || false,
+                coinsRewarded: 35
+              });
+              if (worldName.startsWith("dungeondelver")) {
+                attacker.health = attacker.maxHealth || 100;
+              }
+            }
             pendingPlayerUpdates.add(socket.id);
             
             ioNamespace.emit("playerStatsUpdate", { 
               id: socket.id, 
               kills: attacker?.kills || 0, 
-              deaths: attacker?.deaths || 0 
+              deaths: attacker?.deaths || 0,
+              health: attacker?.health
             });
             ioNamespace.emit("playerStatsUpdate", { 
               id: targetId, 
               kills: target?.kills || 0, 
-              deaths: target?.deaths || 0 
+              deaths: target?.deaths || 0,
+              health: target?.health
             });
 
             let deathMessage = `${target.name} was slain by ${attacker?.name || 'unknown'}`;
@@ -523,13 +600,14 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     socket.on("requestRespawn", () => {
       const p = players[socket.id];
-      if (p && p.isDead) {
+      if (p) {
         if (state.gameState === "endgame") {
           // Do not allow respawn during endgame cutscene
           return;
         }
         p.health = Math.max(100, p.maxHealth || 100);
         p.isDead = false;
+        p.lastRespawnTime = Date.now();
         const pRespawnData = mode.getRespawnPosition(
           p.id,
           p,
@@ -560,18 +638,12 @@ ctx.ioNamespace.on("connection", (socket) => {
       if (!player) return;
 
       try {
-        // Socket.IO receives Node 'Buffer' in the backend
-        let view: DataView;
-        if (Buffer.isBuffer(buf) || buf instanceof Uint8Array) {
-          view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-        } else {
-          view = new DataView(buf as ArrayBuffer);
-        }
-        const px = view.getFloat32(0);
-        const py = view.getFloat32(4);
-        const pz = view.getFloat32(8);
-        const rx = view.getFloat32(12);
-        const ry = view.getFloat32(16);
+const floats = getFloat32Array(buf);
+        const px = floats[0];
+        const py = floats[1];
+        const pz = floats[2];
+        const rx = floats[3];
+        const ry = floats[4];
 
         let significantChange = true;
         if (player.position) {
@@ -664,7 +736,17 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     // Handle block changes
     socket.on("setBlock", (data) => {
-      const { x, y, z, type } = data;
+      let x, y, z, type, force;
+      if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
+        const floats = getFloat32Array(data);
+        x = floats[0];
+        y = floats[1];
+        z = floats[2];
+        type = floats[3];
+        force = floats[4] > 0.5;
+      } else {
+        ({ x, y, z, type, force } = data);
+      }
 
       if (state.gameState === "endgame") return;
 
@@ -697,15 +779,13 @@ ctx.ioNamespace.on("connection", (socket) => {
       chunkManager.setBlockInChunk(cx, cz, lx, ly, lz, type);
       chunkManager.markChunkDirty(x, z);
 
-      // Broadcast to nearby players
-      broadcastToNearby(
-        "blockChanged",
+      // Queue block update
+      pendingBlockUpdates.push({
         data,
-        player.position.x,
-        player.position.z,
-        22500,
-        socket.id,
-      ); // 150 blocks radius
+        x: player.position.x,
+        z: player.position.z,
+        socketId: socket.id
+      });
     });
 
     // Handle chat message
@@ -740,8 +820,37 @@ ctx.ioNamespace.on("connection", (socket) => {
       }
     });
 
+    // Handle shooting arrows
+    socket.on("shootArrow", (data) => {
+      let position = {x:0, y:0, z:0}, velocity = {x:0, y:0, z:0}, power = 1;
+      if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
+        const floats = getFloat32Array(data);
+        power = floats[0];
+        position.x = floats[1]; position.y = floats[2]; position.z = floats[3];
+        velocity.x = floats[4]; velocity.y = floats[5]; velocity.z = floats[6];
+      } else {
+        power = data.power; position = data.position; velocity = data.velocity;
+      }
+      
+      socket.broadcast.emit("shootArrow", {
+        shooter: socket.id,
+        power,
+        position,
+        velocity
+      });
+    });
+
     // Handle dropping items
     socket.on("dropItem", (data) => {
+      let type, position = {x:0, y:0, z:0}, velocity = {x:0, y:0, z:0};
+      if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
+        const floats = getFloat32Array(data);
+        type = floats[0];
+        position.x = floats[1]; position.y = floats[2]; position.z = floats[3];
+        velocity.x = floats[4]; velocity.y = floats[5]; velocity.z = floats[6];
+      } else {
+        type = data.type; position = data.position; velocity = data.velocity;
+      }
       const player = players[socket.id];
       if (player) {
         const now = Date.now();
@@ -766,17 +875,17 @@ ctx.ioNamespace.on("connection", (socket) => {
       const id = Math.random().toString(36).substring(2, 9);
       const item = {
         id,
-        type: data.type,
-        position: data.position,
-        velocity: data.velocity,
+        type,
+        position,
+        velocity,
         timestamp: Date.now(),
       };
       droppedItems[id] = item;
       broadcastToNearby(
         "itemSpawned",
         item,
-        data.position.x,
-        data.position.z,
+        position.x,
+        position.z,
         22500,
         null,
       );
@@ -795,6 +904,14 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     // Handle spawning minions
     socket.on("spawnMinion", (data) => {
+      let type, position = {x:0, y:0, z:0};
+      if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
+        const floats = getFloat32Array(data);
+        type = Math.floor(floats[0]);
+        position.x = floats[1]; position.y = floats[2]; position.z = floats[3];
+      } else {
+        type = data.type; position = data.position;
+      }
       const player = players[socket.id];
       if (!player) return;
 
@@ -809,8 +926,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       const id = "minion_" + Math.random().toString(36).substring(2, 9);
       const minion = {
         id,
-        type: data.type,
-        position: data.position,
+        type,
+        position,
         ownerId: socket.id,
         storage: 0,
         maxStorage: 64,
@@ -820,8 +937,8 @@ ctx.ioNamespace.on("connection", (socket) => {
       broadcastToNearby(
         "minionSpawned",
         minion,
-        data.position.x,
-        data.position.z,
+        position.x,
+        position.z,
         22500,
         null,
       );

@@ -61,6 +61,7 @@ export interface StatsSlice {
   setLeaderboardPlayer: (id: string, name: string, team: string | undefined, kills: number, deaths: number) => void;
   updateLeaderboardStats: (id: string, kills: number, deaths: number) => void;
   removeLeaderboardPlayer: (id: string) => void;
+  clearLeaderboard: () => void;
 }
 
 export interface EnvironmentSlice {
@@ -70,9 +71,41 @@ export interface EnvironmentSlice {
   setIsUnderLava: (val: boolean) => void;
 }
 
-export type GameState = InventorySlice & ChatSlice & PopupSlice & CoreGameSlice & StatsSlice & EnvironmentSlice;
+export interface KillCelebration {
+  id: number;
+  victimName: string;
+  isPlayer: boolean;
+  isBot: boolean;
+  coinsRewarded?: number;
+}
+
+export interface KillCelebrationSlice {
+  killCelebrations: KillCelebration[];
+  addKillCelebration: (victimName: string, isPlayer: boolean, isBot: boolean, coinsRewarded?: number) => void;
+  removeKillCelebration: (id: number) => void;
+}
+
+export type GameState = InventorySlice & ChatSlice & PopupSlice & CoreGameSlice & StatsSlice & EnvironmentSlice & KillCelebrationSlice;
 
 let messageIdCounter = 0;
+
+const createKillCelebrationSlice: StateCreator<GameState, [], [], KillCelebrationSlice> = (set) => ({
+  killCelebrations: [],
+  addKillCelebration: (victimName, isPlayer, isBot, coinsRewarded) => {
+    const id = messageIdCounter++;
+    set((state) => ({
+      killCelebrations: [...state.killCelebrations, { id, victimName, isPlayer, isBot, coinsRewarded }]
+    }));
+    setTimeout(() => {
+      set((state) => ({
+        killCelebrations: state.killCelebrations.filter((c) => c.id !== id)
+      }));
+    }, 4000); // 4 seconds total screen presence
+  },
+  removeKillCelebration: (id) => set((state) => ({
+    killCelebrations: state.killCelebrations.filter((c) => c.id !== id)
+  })),
+});
 
 const createInventorySlice: StateCreator<GameState, [], [], InventorySlice> = (set) => ({
   inventoryVersion: 0,
@@ -170,6 +203,7 @@ const createStatsSlice: StateCreator<GameState, [], [], StatsSlice> = (set, get)
     delete newLb[id];
     return { leaderboard: newLb };
   }),
+  clearLeaderboard: () => set({ leaderboard: {} }),
 });
 
 const createEnvironmentSlice: StateCreator<GameState, [], [], EnvironmentSlice> = (set) => ({
@@ -186,4 +220,5 @@ export const useGameStore = create<GameState>()((...a) => ({
   ...createCoreGameSlice(...a),
   ...createStatsSlice(...a),
   ...createEnvironmentSlice(...a),
+  ...createKillCelebrationSlice(...a),
 }));

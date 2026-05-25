@@ -19,5 +19,6 @@
   "447": { "baseDamage": 3, "strength": 0 },
   "448": { "baseDamage": 4, "strength": 0 },
   "449": { "baseDamage": 2, "strength": 0 },
-  "450": { "baseDamage": 5, "strength": 0 }
+  "450": { "baseDamage": 5, "strength": 0 },
+  "521": { "baseDamage": 150, "strength": 50 }
 }

@@ -11,6 +11,7 @@ interface UIState {
   isServerJoinOpen: boolean;
   isLaunchMenuOpen: boolean;
   isChestOpen: boolean;
+  isLoadoutOpen: boolean;
   isHUDVisible: boolean;
   currentNPC: NPC | null;
   setInventoryOpen: (open: boolean) => void;
@@ -22,8 +23,10 @@ interface UIState {
   setServerJoinOpen: (open: boolean) => void;
   setLaunchMenuOpen: (open: boolean) => void;
   setChestOpen: (open: boolean) => void;
+  setLoadoutOpen: (open: boolean) => void;
   setHUDVisible: (visible: boolean) => void;
   setCurrentNPC: (npc: NPC | null) => void;
+  forceCloseAllMenus: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -36,6 +39,7 @@ export const useUIStore = create<UIState>((set) => ({
   isServerJoinOpen: false,
   isLaunchMenuOpen: false,
   isChestOpen: false,
+  isLoadoutOpen: false,
   isHUDVisible: true,
   currentNPC: null,
   setInventoryOpen: (open) => set({ isInventoryOpen: open }),
@@ -47,8 +51,20 @@ export const useUIStore = create<UIState>((set) => ({
   setServerJoinOpen: (open) => set({ isServerJoinOpen: open }),
   setLaunchMenuOpen: (open) => set({ isLaunchMenuOpen: open }),
   setChestOpen: (open) => set({ isChestOpen: open }),
+  setLoadoutOpen: (open) => set({ isLoadoutOpen: open }),
   setHUDVisible: (visible) => set({ isHUDVisible: visible }),
   setCurrentNPC: (npc) => set({ currentNPC: npc }),
+  forceCloseAllMenus: () => set({
+    isInventoryOpen: false,
+    isShopOpen: false,
+    isSettingsOpen: false,
+    isPauseMenuOpen: false,
+    isServerJoinOpen: false,
+    isLaunchMenuOpen: false,
+    isChestOpen: false,
+    isLoadoutOpen: false,
+    currentNPC: null
+  })
 }));
 
 export const useUI = useUIStore;

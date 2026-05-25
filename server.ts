@@ -20,6 +20,21 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
+  
+  app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    next();
+  });
+
+  app.get('/api/matchmake', (req, res) => {
+      let mode = req.query.mode as string || 'hub';
+      if (mode.includes('_')) {
+         mode = mode.split('_')[0]; // strip instance id if client asks for a specific one 
+      }
+      const p = getOrProvisionServer(mode);
+      res.json({ serverId: p });
+  });
 
   const wss = new WebSocketServer({ noServer: true });
 
@@ -117,7 +132,16 @@ async function startServer() {
             // Only reap if there is more than 1 instance to keep the pool warm
             if (instances.length > 1) {
               console.log(`Reaping idle instance: ${instance.id}`);
-              instance.worker.terminate();
+              instance.worker.postMessage({ type: 'destroy' });
+              
+              // Fallback timeout to terminate if worker doesn't exit cleanly within 5 seconds
+              setTimeout(() => {
+                const list = activeInstances[baseName];
+                if (list?.find(i => i.id === instance.id)) {
+                   console.log(`Force terminating unresponsive instance after destroy signal: ${instance.id}`);
+                   instance.worker.terminate();
+                }
+              }, 5000);
               // The 'exit' event handler will remove it from the instances array
             }
           }
@@ -192,11 +216,15 @@ async function startServer() {
 
     const api = {
       destroy: () => {
-        worker.terminate();
+        worker.postMessage({ type: 'destroy' });
+        setTimeout(() => {
+           worker.terminate();
+        }, 5000);
       }
     };
     
-    instances.push({ id: newId, name: baseName, playerLimit: 50, worker, api });
+    const playerLimit = baseName === 'dungeondelver' ? 30 : 50;
+    instances.push({ id: newId, name: baseName, playerLimit, worker, api });
     console.log(`Provisioned new server child instance: ${newId}`);
     return newId;
   }

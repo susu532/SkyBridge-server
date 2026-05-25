@@ -13,12 +13,12 @@ export interface GameContext {
   bakedBlocks: Map<string, number>;
   npcs: any[];
   players: Record<string, IServerPlayer>;
-  morvaneDead: Record<string, boolean>;
   droppedItems: Record<string, IDroppedItemState>;
   mobs: Record<string, ITickMob>;
   minions: Record<string, IMinionState>;
   
   pendingPlayerUpdates: Set<string>;
+  pendingBlockUpdates: any[];
   pendingHits: any[];
   pendingMobHits: any[];
   pendingRespawns: any[];
@@ -58,6 +58,7 @@ export interface GameContext {
   isIndestructible: (x: number, y: number, z: number) => boolean;
   getBlockAt: (x: number, y: number, z: number) => number | undefined;
   resetRoom: () => void;
-  handleMorvaneDeath: () => void;
   releaseMobToPool: (mob: ITickMob) => void;
+  morvaneDead?: Record<string, boolean>;
+  handleMorvaneDeath?: (mob: ITickMob) => void;
 }

@@ -45,6 +45,15 @@ export function tickMobDespawn(ctx: GameContext) {
   } else {
     for (const id in mobs) {
       const mob = mobs[id];
+      if (mob.health <= 0) {
+        const mx = mob.position.x;
+        const mz = mob.position.z;
+        delete mobs[id];
+        ctx.releaseMobToPool(mob);
+        mobBuffers.delete(id);
+        broadcastToNearby("mobDespawned", id, mx, mz, 22500, null);
+        continue;
+      }
       let minPlayerDistSq = Infinity;
       for (const pId in players) {
         const p = players[pId];
