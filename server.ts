@@ -21,20 +21,6 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
   
-  app.use((req, res, next) => {
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-    next();
-  });
-
-  app.get('/api/matchmake', (req, res) => {
-      let mode = req.query.mode as string || 'hub';
-      if (mode.includes('_')) {
-         mode = mode.split('_')[0]; // strip instance id if client asks for a specific one 
-      }
-      const p = getOrProvisionServer(mode);
-      res.json({ serverId: p });
-  });
 
   const wss = new WebSocketServer({ noServer: true });
 
