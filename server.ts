@@ -10,13 +10,27 @@ import { WebSocketServer } from 'ws';
 import Piscina from 'piscina';
 
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://starplex-io.vercel.app'];
+
+function isOriginAllowed(origin: string | undefined): boolean {
+    if (!origin) return true;
+    if (ALLOWED_ORIGIN.includes(origin)) return true;
+    if (origin === 'https://crazygames.com' || origin.endsWith('.crazygames.com')) return true;
+    return false;
+}
+
 const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale','skyisland']);
 
 async function startServer() {
   const app = express();
 
   app.use(cors({
-    origin: ALLOWED_ORIGIN,
+    origin: function (origin, callback) {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST']
   }));
 
@@ -54,7 +68,7 @@ async function startServer() {
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
     const origin = request.headers.origin;
-    if (origin && !ALLOWED_ORIGIN.includes(origin)) {
+    if (!isOriginAllowed(origin)) {
         socket.destroy();
         return;
     }
