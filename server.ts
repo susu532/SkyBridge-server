@@ -6,7 +6,6 @@ import path from 'path';
 import fs from 'fs';
 import { Worker, MessageChannel } from 'worker_threads';
 import { WebSocketServer } from 'ws';
-
 import Piscina from 'piscina';
 
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://starplex-io.vercel.app'];
@@ -22,10 +21,6 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
-  
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
-  });
   
   const genWorkerFileNode = path.join(process.cwd(), 'dist/src/server/GenWorker.cjs');
   const fallbackTs = path.join(process.cwd(), 'src/server/GenWorker.ts');
