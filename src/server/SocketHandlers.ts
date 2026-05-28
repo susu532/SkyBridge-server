@@ -2,8 +2,7 @@ import { CHUNK_SIZE, WORLD_Y_OFFSET } from "./constants";
 
 import { chatModerator } from "./ChatModerator";
 import { GameContext } from "./GameContext";
-// Also need itemsData for combat damage calculation? Let's just require it here.
-import itemsData from "../../data/items.json";
+import { CombatEngine } from "./CombatEngine";
 
 import { encodeRLE } from "../game/RLE";
 import { MobTypes } from "../game/Constants";
@@ -347,66 +346,11 @@ ctx.ioNamespace.on("connection", (socket) => {
         return; // Max ~4.5 attacks per second over network to account for jitter
       attacker.lastAttackTime = now;
 
-      // Base combat calculation
-      let baseDamage = 5;
-      let strength = 0;
-      let critChance = 30;
-      let critDamage = 50;
+      const { damage: finalDamage, isCrit: finalIsCrit } = CombatEngine.calculateDamage(attacker);
+      let damage = finalDamage;
+      const _isCrit = finalIsCrit;
 
-      const heldItem = attacker.heldItem || 0;
-      const itemStats = (
-        itemsData as Record<string, { baseDamage: number; strength: number }>
-      )[heldItem.toString()];
-
-      if (itemStats) {
-        baseDamage += itemStats.baseDamage;
-        strength += itemStats.strength;
-      }
-
-      const combatLevel = attacker.skills?.["Combat"]?.level || 0;
-      const additiveMultiplier = 1 + combatLevel * 0.04;
-      const strengthMultiplier = 1 + strength / 100;
-
-      const _isCrit = Math.random() < critChance / 100;
-      const critMultiplier = _isCrit ? 1 + critDamage / 100 : 1;
-
-      let damage = Math.floor(
-        baseDamage * strengthMultiplier * critMultiplier * additiveMultiplier,
-      );
-
-      if (typeof clientDamage === "number") {
-        damage = Math.max(0, Math.floor(clientDamage));
-      }
-
-      // Minecraft-style Knockback calculation using attacker's yaw
-      const attackerYaw = attacker.rotation?.y || 0;
-      const kbForce = isSprinting ? 12 : 8;
-      
-      // Calculate dx, dy, dz velocity using attacker's rotation (yaw)
-      // Three.js rotation.y is straightforward radians. Math.sin/cos takes radians.
-      // - Math.sin(yaw) goes left/right realistically with ThreeJS rotation
-      // - Math.cos(yaw) goes forward/backward realistically with ThreeJS rotation
-      let serverKnockbackDir = {
-        x: -Math.sin(attackerYaw) * kbForce,
-        y: 12.0,
-        z: -Math.cos(attackerYaw) * kbForce
-      };
-
-      if (knockbackDir && typeof knockbackDir.x === 'number' && typeof knockbackDir.z === 'number') {
-        if (isProjectile) {
-          serverKnockbackDir = {
-            x: knockbackDir.x * kbForce,
-            y: (knockbackDir.y || 0) * kbForce,
-            z: knockbackDir.z * kbForce
-          };
-        } else {
-          serverKnockbackDir = {
-            x: knockbackDir.x,
-            y: knockbackDir.y || 0,
-            z: knockbackDir.z
-          };
-        }
-      }
+      const serverKnockbackDir = CombatEngine.calculateKnockback(attacker, isSprinting, isProjectile, knockbackDir);
 
       if (isMob) {
         const mob = mobs[targetId];

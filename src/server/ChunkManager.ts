@@ -76,38 +76,6 @@ export class ChunkManager {
     }
     
     if (createIfMissing) {
-      try {
-        const row = this.getChunk.get(this.worldName, key) as any;
-        if (row && row.data) {
-          if (typeof row.data === 'string' && row.data.startsWith('{')) {
-            const oldRecord = JSON.parse(row.data) as Record<string, number>;
-            changes = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
-            changes.fill(65535);
-            for (const [k, v] of Object.entries(oldRecord)) {
-              const [wx, wy, wz] = k.split(',').map(Number);
-              const lx = ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-              const lz = ((wz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-              const ly = wy - WORLD_Y_OFFSET;
-              if (ly >= 0 && ly < CHUNK_HEIGHT) {
-                changes[lx | (lz << 4) | (ly << 8)] = v;
-              }
-            }
-          } else {
-            const buffer = row.data.buffer || row.data;
-            changes = new Uint16Array(
-              buffer,
-              row.data.byteOffset || 0,
-              row.data.byteLength / 2
-            );
-          }
-          this.chunks.set(key, changes);
-          this.dbChunks.set(key, changes);
-          return changes;
-        }
-      } catch (err) {
-        console.error('Error loading chunk from DB:', err);
-      }
-      
       changes = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
       changes.fill(65535);
       this.chunks.set(key, changes);

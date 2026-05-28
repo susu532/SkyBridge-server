@@ -342,37 +342,43 @@ export function tick(ctx: GameContext, delta: number) {
             let closestDist = 1500;
             let closestItem: any = null;
             let closestType: string | null = null;
-            // Target mobs
-            for (const mId in mobs) {
-              const m = mobs[mId];
-              if (m.health > 0) {
-                if (m.team && p.team && m.team === p.team) continue; // Don't target friendly team mobs
-                const dx = m.position.x - p.position.x;
-                const dy = m.position.y - p.position.y;
-                const dz = m.position.z - p.position.z;
-                const distSq = dx*dx + dy*dy + dz*dz;
-                if (distSq < closestDist) {
-                  closestDist = distSq;
-                  closestItem = mId;
-                  closestType = 'mob';
+            const botCellX = Math.floor(p.position.x / PLAYER_CELL_SIZE);
+            const botCellZ = Math.floor(p.position.z / PLAYER_CELL_SIZE);
+
+            // Target mobs via spatial hashes instead of global iteration
+            for (let dx = -2; dx <= 2; dx++) {
+              for (let dz = -2; dz <= 2; dz++) {
+                const cellKey = getCellKey(botCellX + dx, botCellZ + dz);
+                const cellMobs = spatialHash.get(cellKey);
+                if (cellMobs) {
+                  for (const m of cellMobs) {
+                    if (m.health > 0) {
+                      if (m.team && p.team && m.team === p.team) continue;
+                      const distSq = (m.position.x - p.position.x)**2 + (m.position.y - p.position.y)**2 + (m.position.z - p.position.z)**2;
+                      if (distSq < closestDist) {
+                        closestDist = distSq;
+                        closestItem = m.id || m.type;
+                        closestType = 'mob';
+                      }
+                    }
+                  }
                 }
-              }
-            }
-            // Target other players (if PvP enabled. Bots can target bots or players)
-            if (mode.allowPvP) {
-              for (const otherId in players) {
-                const other = players[otherId];
-                if (otherId !== id && !other.isDead) { 
-                   if (other.team && p.team && other.team === p.team) continue; // Don't target same team
-                   const dx = other.position.x - p.position.x;
-                   const dy = other.position.y - p.position.y;
-                   const dz = other.position.z - p.position.z;
-                   const distSq = dx*dx + dy*dy + dz*dz;
-                   if (distSq < closestDist) {
-                     closestDist = distSq;
-                     closestItem = otherId;
-                     closestType = 'player';
-                   }
+                
+                if (mode.allowPvP) {
+                  const cellPlayers = playerHash.get(cellKey);
+                  if (cellPlayers) {
+                    for (const other of cellPlayers) {
+                      if (other.id !== id && !other.isDead) {
+                        if (other.team && p.team && other.team === p.team) continue;
+                        const distSq = (other.position.x - p.position.x)**2 + (other.position.y - p.position.y)**2 + (other.position.z - p.position.z)**2;
+                        if (distSq < closestDist) {
+                          closestDist = distSq;
+                          closestItem = other.id;
+                          closestType = 'player';
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

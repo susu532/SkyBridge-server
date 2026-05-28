@@ -29,3 +29,17 @@ for (const [key, value] of Object.entries(namesData)) {
     ITEM_NAMES[itemType as ItemType] = value as string;
   }
 }
+
+export function calculateMobMaxHealth(type: string, level: number): number {
+  let maxHealth = 100 + (level - 1) * 50;
+  if (type === MobTypes.MORVANE) {
+    maxHealth = 5000;
+  }
+  if (type === MobTypes.SLIME) {
+    maxHealth *= 0.5;
+  }
+  if ([MobTypes.COW, MobTypes.SHEEP].includes(type as MobTypes)) {
+    maxHealth = 20;
+  }
+  return maxHealth;
+}

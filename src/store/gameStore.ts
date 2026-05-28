@@ -158,7 +158,7 @@ const createPopupSlice: StateCreator<GameState, [], [], PopupSlice> = (set) => (
 });
 
 const createCoreGameSlice: StateCreator<GameState, [], [], CoreGameSlice> = (set) => ({
-  currentMode: 'hub',
+  currentMode: 'dungeondelver',
   setCurrentMode: (mode) => set({ currentMode: mode }),
   serverId: '',
   setServerId: (id) => set({ serverId: id }),

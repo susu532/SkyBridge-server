@@ -14,7 +14,7 @@ import {
 } from "../game/TerrainGenerator";
 
 import { BLOCK, isSolidBlock, CHUNK_SIZE, WORLD_Y_OFFSET } from "./constants";
-import { MobTypes } from "../game/Constants";
+import { MobTypes, calculateMobMaxHealth } from "../game/Constants";
 import { tickItemDespawn, tickMobDespawn } from "./Systems";
 import itemsData from "../../data/items.json";
 import npcsData from "../game/data/npcs.json";
@@ -280,11 +280,12 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo, genWorker
           }
         }
       }
-      hp = 100 + (mobLvl - 1) * 20;
       scale = 1 + (mobLvl - 1) * 0.1;
     } else if (level !== undefined) {
       mobLvl = level;
     }
+
+    hp = calculateMobMaxHealth(type, mobLvl);
 
     const mob = getMobFromPool();
     mob.id = id;
@@ -321,7 +322,7 @@ const ctx: import("./GameContext").GameContext = {
     pendingPlayerUpdates, pendingBlockUpdates, pendingHits, pendingMobHits, pendingRespawns,
     playerBuffers, mobBuffers, spatialHash, playerHash, state,
     CELL_SIZE, PLAYER_CELL_SIZE, dayCycleSpeed, hostileMobTypes,
-    getCellKey, broadcastToNearby, spawnMob, isIndestructible, getBlockAt, resetRoom, handleMorvaneDeath,
+    getCellKey, broadcastToNearby, spawnMob, isIndestructible, getBlockAt, resetRoom,
     releaseMobToPool
   };
   
@@ -448,66 +449,6 @@ const ctx: import("./GameContext").GameContext = {
       });
     }
   }
-
-  function handleMorvaneDeath() {
-    if (state.gameState === "endgame") return;
-    state.gameState = "endgame";
-    state.resetCountdown = Date.now() + 15000;
-    state.hasBeenReset = false;
-
-    if (morvaneDead.red && morvaneDead.blue) {
-      state.winningTeam = "draw";
-      ioNamespace.emit("chatMessage", {
-        sender: "System",
-        message: `It's a draw! Both Morvanes died. You will be moved to a new game in 15 seconds.`,
-      });
-      return;
-    }
-
-    const deadTeam = morvaneDead.red ? "red" : "blue";
-    const winningTeam = deadTeam === "blue" ? "Red" : "Blue";
-    state.winningTeam = winningTeam.toLowerCase();
-
-    // Global announcement
-    ioNamespace.emit("chatMessage", {
-      sender: "System",
-      message: `Team ${winningTeam} wins! You will be moved to a new game in 15 seconds.`,
-    });
-
-    for (const p of Object.values(players)) {
-      if (p.team === deadTeam) {
-        if (!p.isDead && !p.isSpectator) {
-          p.health = 0;
-          p.isDead = false;
-          p.isSpectator = true;
-          ioNamespace.emit("playerDied", { id: p.id });
-          ioNamespace.emit("playerStatus", {
-            id: p.id,
-            isDead: false,
-            isSpectator: true,
-            health: 0,
-          });
-          ioNamespace.to(p.id).emit("becomeSpectator");
-          ioNamespace.emit("chatMessage", {
-            sender: "System",
-            message: `${p.name} died and became a spectator`,
-          });
-        } else if (p.isDead) {
-          p.isDead = false;
-          p.isSpectator = true;
-          ioNamespace.emit("playerStatus", {
-            id: p.id,
-            isDead: false,
-            isSpectator: true,
-            health: 0,
-          });
-          ioNamespace.to(p.id).emit("becomeSpectator");
-        }
-      }
-    }
-  }
-
-  
 
   const tick = (delta: number) => {
     runTick(ctx, delta);

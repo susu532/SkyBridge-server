@@ -6,15 +6,16 @@ import path from 'path';
 import fs from 'fs';
 import { Worker, MessageChannel } from 'worker_threads';
 import { WebSocketServer } from 'ws';
+import Piscina from 'piscina';
 
-const ALLOWED_ORIGIN = 'https://starplex-io.vercel.app';
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://starplex-io.vercel.app'];
 const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale','skyisland']);
 
 async function startServer() {
   const app = express();
 
   app.use(cors({
-    origin: 'https://starplex-io.vercel.app',
+    origin: ALLOWED_ORIGIN,
     methods: ['GET', 'POST']
   }));
 
@@ -35,15 +36,6 @@ async function startServer() {
     next();
   });
 
-  app.get('/api/matchmake', (req, res) => {
-      let mode = req.query.mode as string || 'dungeondelver';
-      if (mode.includes('_')) {
-         mode = mode.split('_')[0]; // strip instance id if client asks for a specific one 
-      }
-      const p = getOrProvisionServer(mode);
-      res.json({ serverId: p });
-  });
-
   const wss = new WebSocketServer({ noServer: true });
 
   const dbWorkerFile = path.join(process.cwd(), 'dist/src/server/DatabaseWorker.cjs');
@@ -57,7 +49,7 @@ async function startServer() {
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
     const origin = request.headers.origin;
-    if (origin && origin !== ALLOWED_ORIGIN) {
+    if (origin && !ALLOWED_ORIGIN.includes(origin)) {
         socket.destroy();
         return;
     }

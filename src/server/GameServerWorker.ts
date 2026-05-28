@@ -15,22 +15,13 @@ import path from 'path';
 import fs from 'fs';
 
 // Extract data passed from main thread via workerData
-const baseName = workerData?.BASE_NAME || 'hub';
-const instanceId = workerData?.INSTANCE_ID || '/hub_1';
+const baseName = workerData?.BASE_NAME || 'dungeondelver';
+const instanceId = workerData?.INSTANCE_ID || '/dungeondelver_1';
 
-const genWorkerFile = path.join(process.cwd(), 'dist/src/server/GenWorker.cjs');
-let genWorkerModule = genWorkerFile;
-let genExecArgv: string[] = [];
-if (!fs.existsSync(genWorkerFile)) {
-    genWorkerModule = path.join(process.cwd(), 'src/server/GenWorker.ts');
-    genExecArgv = /\.ts$/.test(__filename) ? ['--require', 'tsx/cjs'] : [];
-}
+// We will proxy generation requests up to the main thread's Piscina pool
+const genWorker = parentPort!;
 
-const genWorker = new Worker(genWorkerModule, {
-    execArgv: genExecArgv
-});
-
-genWorker.on('message', (msg) => {
+parentPort?.on('message', (msg) => {
   if (msg.type === 'chunk_generated') {
       if ((api as any) && (api as any).injectChunk) {
           (api as any).injectChunk(msg.cx, msg.cz, msg.data);
@@ -40,13 +31,13 @@ genWorker.on('message', (msg) => {
 
 function getModeFactory(name: string) {
   if (name === 'hub') return new HubMode();
-  if (name === 'skybridge') return new SkyBridgeMode();
-  if (name === 'skycastles') return new SkyCastlesMode('/skycastles');
-  if (name === 'voidtrail') return new VoidTrailMode('/voidtrail');
+  // if (name === 'skybridge') return new SkyBridgeMode();
+  // if (name === 'skycastles') return new SkyCastlesMode('/skycastles');
+  // if (name === 'voidtrail') return new VoidTrailMode('/voidtrail');
   if (name === 'dungeondelver') return new DungeonDelverMode();
-  if (name === 'battleroyale') return new BattleRoyaleMode();
-  if (name === 'skyisland') return new SkyIslandMode('/skyisland');
-  return new HubMode();
+  // if (name === 'battleroyale') return new BattleRoyaleMode();
+  // if (name === 'skyisland') return new SkyIslandMode('/skyisland');
+  return new DungeonDelverMode();
 }
 
 const mode = getModeFactory(baseName);
@@ -217,7 +208,7 @@ const fakeServer = {
   of: (name: string) => fakeIo
 };
 
-const api = createGameServer(fakeServer as any, db, mode, genWorker);
+const api = createGameServer(fakeServer as any, db, mode, genWorker as any);
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -275,7 +266,7 @@ if (parentPort) {
        }
     } else if (msg && msg.type === 'destroy') {
       if (api && (api as any).destroy) (api as any).destroy();
-      genWorker.terminate();
+      if ((genWorker as any).terminate) (genWorker as any).terminate();
       db.close();
       process.exit(0);
     }

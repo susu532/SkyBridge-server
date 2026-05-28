@@ -60,5 +60,4 @@ export interface GameContext {
   resetRoom: () => void;
   releaseMobToPool: (mob: ITickMob) => void;
   morvaneDead?: Record<string, boolean>;
-  handleMorvaneDeath?: (mob: ITickMob) => void;
 }

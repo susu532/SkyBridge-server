@@ -190,7 +190,65 @@ export class SkyCastlesMode implements GameModeInfo {
     }
 
     if (ctx.state.gameState === "playing" && ctx.morvaneDead && (ctx.morvaneDead.red || ctx.morvaneDead.blue)) {
-      if (ctx.handleMorvaneDeath) ctx.handleMorvaneDeath({} as any);
+      this.handleMorvaneDeath(ctx);
+    }
+  }
+
+  private handleMorvaneDeath(ctx: GameContext) {
+    if (ctx.state.gameState === "endgame") return;
+    ctx.state.gameState = "endgame";
+    ctx.state.resetCountdown = Date.now() + 15000;
+    ctx.state.hasBeenReset = false;
+
+    if (ctx.morvaneDead && ctx.morvaneDead.red && ctx.morvaneDead.blue) {
+      ctx.state.winningTeam = "draw";
+      ctx.ioNamespace.emit("chatMessage", {
+        sender: "System",
+        message: `It's a draw! Both Morvanes died. You will be moved to a new game in 15 seconds.`,
+      });
+      return;
+    }
+
+    const deadTeam = ctx.morvaneDead && ctx.morvaneDead.red ? "red" : "blue";
+    const winningTeam = deadTeam === "blue" ? "Red" : "Blue";
+    ctx.state.winningTeam = winningTeam.toLowerCase();
+
+    // Global announcement
+    ctx.ioNamespace.emit("chatMessage", {
+      sender: "System",
+      message: `Team ${winningTeam} wins! You will be moved to a new game in 15 seconds.`,
+    });
+
+    for (const p of Object.values(ctx.players)) {
+      if (p.team === deadTeam) {
+        if (!p.isDead && !p.isSpectator) {
+          p.health = 0;
+          p.isDead = false;
+          p.isSpectator = true;
+          ctx.ioNamespace.emit("playerDied", { id: p.id });
+          ctx.ioNamespace.emit("playerStatus", {
+            id: p.id,
+            isDead: false,
+            isSpectator: true,
+            health: 0,
+          });
+          ctx.ioNamespace.to(p.id).emit("becomeSpectator");
+          ctx.ioNamespace.emit("chatMessage", {
+            sender: "System",
+            message: `${p.name} died and became a spectator`,
+          });
+        } else if (p.isDead) {
+          p.isDead = false;
+          p.isSpectator = true;
+          ctx.ioNamespace.emit("playerStatus", {
+            id: p.id,
+            isDead: false,
+            isSpectator: true,
+            health: 0,
+          });
+          ctx.ioNamespace.to(p.id).emit("becomeSpectator");
+        }
+      }
     }
   }
 
