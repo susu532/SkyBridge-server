@@ -21,6 +21,28 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
   
+  const genWorkerFileNode = path.join(process.cwd(), 'dist/src/server/GenWorker.cjs');
+  const fallbackTs = path.join(process.cwd(), 'src/server/GenWorker.ts');
+  const genWorkerFileForPiscina = fs.existsSync(genWorkerFileNode) ? genWorkerFileNode : fallbackTs;
+  
+  const genWorkerPool = new Piscina({
+    filename: genWorkerFileForPiscina,
+    execArgv: fs.existsSync(genWorkerFileNode) ? [] : ['--require', 'tsx/cjs']
+  });
+  
+  app.use((req, res, next) => {
+    // COOP and COEP removed to fix mobile connection issues on LAN
+    next();
+  });
+
+  app.get('/api/matchmake', (req, res) => {
+      let mode = req.query.mode as string || 'dungeondelver';
+      if (mode.includes('_')) {
+         mode = mode.split('_')[0]; // strip instance id if client asks for a specific one 
+      }
+      const p = getOrProvisionServer(mode);
+      res.json({ serverId: p });
+  });
 
   const wss = new WebSocketServer({ noServer: true });
 
@@ -172,7 +194,7 @@ async function startServer() {
       workerData: workerData
     });
 
-    worker.on('message', (msg: any) => {
+    worker.on('message', async (msg: any) => {
         if (msg.type === 'save_chunks' || msg.type === 'save_npcs') {
             dbWorker.postMessage(msg);
         } else if (msg.type === 'playerCount') {
@@ -182,6 +204,13 @@ async function startServer() {
                 if (instance) {
                     instance.playerCount = msg.count;
                 }
+            }
+        } else if (msg.type === 'generate') {
+            try {
+                const res = await genWorkerPool.run(msg);
+                worker.postMessage({ type: 'chunk_generated', cx: res.cx, cz: res.cz, worldName: res.worldName, data: res.data }, [res.data]);
+            } catch (err) {
+                console.error("Error generating chunk in pool:", err);
             }
         }
     });
@@ -217,15 +246,15 @@ async function startServer() {
 
   // Pre-warm the instances (Hub allows up to 100 or something, but let's stick to 50 for everything as requested)
   getOrProvisionServer('hub');
-  getOrProvisionServer('skybridge');
-  getOrProvisionServer('skycastles');
-  getOrProvisionServer('voidtrail');
+  // getOrProvisionServer('skybridge');
+  // getOrProvisionServer('skycastles');
+  // getOrProvisionServer('voidtrail');
   getOrProvisionServer('dungeondelver');
-  getOrProvisionServer('battleroyale');
-  getOrProvisionServer('skyisland');
+  // getOrProvisionServer('battleroyale');
+  // getOrProvisionServer('skyisland');
 
   app.get('/api/matchmake', (req, res) => {
-    let mode = (req.query.mode as string) || 'hub';
+    let mode = (req.query.mode as string) || 'dungeondelver';
     if (mode.includes('_')) {
        mode = mode.split('_')[0];
     }
