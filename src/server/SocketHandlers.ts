@@ -388,7 +388,7 @@ ctx.ioNamespace.on("connection", (socket) => {
       // - Math.cos(yaw) goes forward/backward realistically with ThreeJS rotation
       let serverKnockbackDir = {
         x: -Math.sin(attackerYaw) * kbForce,
-        y: 0,
+        y: 12.0,
         z: -Math.cos(attackerYaw) * kbForce
       };
 
@@ -469,7 +469,7 @@ ctx.ioNamespace.on("connection", (socket) => {
             if (mob.type !== MobTypes.MORVANE) {
               mob.velocity.x = serverKnockbackDir.x;
               mob.velocity.z = serverKnockbackDir.z;
-              mob.velocity.y = 1.5; // Reduced from 6 which caused huge fly distance
+              mob.velocity.y = 4.5; // Enhanced upward vertical impulse
               mob.knockbackTimer = 0.5; // 500ms of knockback where AI is disabled
             }
           }

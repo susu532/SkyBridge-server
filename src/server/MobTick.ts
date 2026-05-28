@@ -219,13 +219,13 @@ export function tickMobs(ctx: GameContext, delta: number, now: number, fastGetBl
              target.velocity = target.velocity || {x:0, y:0, z:0};
              target.velocity.x += (dx / dist) * 0.5;
              target.velocity.z += (dz / dist) * 0.5;
-             target.velocity.y += 0.2;
+             target.velocity.y += 1.6;
           }
           pendingPlayerUpdates.add(mob.targetId);
           pendingHits.push({ 
             id: mob.targetId, 
             damage: actualDamage, 
-            knockbackDir: { x: (dx/dist)*8, y:0, z: (dz/dist)*8 },
+            knockbackDir: { x: (dx/dist)*8, y:14.0, z: (dz/dist)*8 },
             attackerId: mId,
              position: { x: target.position.x, z: target.position.z }
           });
