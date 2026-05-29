@@ -31,18 +31,32 @@ async function startServer() {
     filename: genWorkerFileForPiscina,
     execArgv: fs.existsSync(genWorkerFileNode) ? [] : ['--require', 'tsx/cjs']
   });
-  
-
 
   const wss = new WebSocketServer({ noServer: true });
 
+  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, emptySince?: number, playerCount?: number, worker: Worker, api: any }[]> = {};
+
   const dbWorkerFile = path.join(process.cwd(), 'dist/src/server/DatabaseWorker.cjs');
   let dbWorker: Worker;
-  if (fs.existsSync(dbWorkerFile)) {
-     dbWorker = new Worker(dbWorkerFile, { execArgv: [] });
-  } else {
-     dbWorker = new Worker(path.join(process.cwd(), 'src/server/DatabaseWorker.ts'), { execArgv: process.execArgv });
+
+  function spawnDbWorker() {
+    const file = fs.existsSync(dbWorkerFile)
+      ? dbWorkerFile
+      : path.join(process.cwd(), 'src/server/DatabaseWorker.ts');
+    const argv = fs.existsSync(dbWorkerFile) ? [] : process.execArgv;
+    dbWorker = new Worker(file, { execArgv: argv });
+
+    dbWorker.on('error', (err) => {
+      console.error('DatabaseWorker error:', err);
+    });
+
+    dbWorker.on('exit', (code) => {
+      console.error(`DatabaseWorker exited with code ${code}, restarting...`);
+      spawnDbWorker();
+    });
   }
+
+  spawnDbWorker();
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
@@ -51,6 +65,11 @@ async function startServer() {
         if (!serverName.includes('_')) serverName += '_1';
         
         const mode = serverName.split('_')[0];
+
+        if (!VALID_MODES.has(mode)) {
+            socket.destroy();
+            return;
+        }
         
         let instances = activeInstances[mode];
         if (!instances) {
@@ -92,7 +111,7 @@ async function startServer() {
                 });
                 
                 port1.on('close', () => {
-                    ws.close();
+                    if (ws.readyState === ws.OPEN) ws.close();
                 });
                 
                 instance.worker.postMessage({ type: 'new_client', port: port2 }, [port2]);
@@ -102,8 +121,6 @@ async function startServer() {
         }
     }
   });
-
-  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, emptySince?: number, playerCount?: number, worker: Worker, api: any }[]> = {};
   
   // Background Task Loop: Reaping empty instances (runs every 5 seconds)
   setInterval(() => {
