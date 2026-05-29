@@ -9,12 +9,30 @@ import { WebSocketServer } from 'ws';
 
 import Piscina from 'piscina';
 
-const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale', 'skyisland']);
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://starplex-io.vercel.app'];
+
+function isOriginAllowed(origin: string | undefined): boolean {
+    if (!origin) return true;
+    if (ALLOWED_ORIGIN.includes(origin)) return true;
+    if (origin === 'https://crazygames.com' || origin.endsWith('.crazygames.com')) return true;
+    return false;
+}
+
+const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale','skyisland']);
 
 async function startServer() {
   const app = express();
 
-  app.use(cors());
+  app.use(cors({
+    origin: function (origin, callback) {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST']
+  }));
 
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
@@ -31,35 +49,30 @@ async function startServer() {
     filename: genWorkerFileForPiscina,
     execArgv: fs.existsSync(genWorkerFileNode) ? [] : ['--require', 'tsx/cjs']
   });
+  
+  app.use((req, res, next) => {
+    // COOP and COEP removed to fix mobile connection issues on LAN
+    next();
+  });
 
   const wss = new WebSocketServer({ noServer: true });
 
-  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, emptySince?: number, playerCount?: number, worker: Worker, api: any }[]> = {};
-
   const dbWorkerFile = path.join(process.cwd(), 'dist/src/server/DatabaseWorker.cjs');
   let dbWorker: Worker;
-
-  function spawnDbWorker() {
-    const file = fs.existsSync(dbWorkerFile)
-      ? dbWorkerFile
-      : path.join(process.cwd(), 'src/server/DatabaseWorker.ts');
-    const argv = fs.existsSync(dbWorkerFile) ? [] : process.execArgv;
-    dbWorker = new Worker(file, { execArgv: argv });
-
-    dbWorker.on('error', (err) => {
-      console.error('DatabaseWorker error:', err);
-    });
-
-    dbWorker.on('exit', (code) => {
-      console.error(`DatabaseWorker exited with code ${code}, restarting...`);
-      spawnDbWorker();
-    });
+  if (fs.existsSync(dbWorkerFile)) {
+     dbWorker = new Worker(dbWorkerFile, { execArgv: [] });
+  } else {
+     dbWorker = new Worker(path.join(process.cwd(), 'src/server/DatabaseWorker.ts'), { execArgv: process.execArgv });
   }
-
-  spawnDbWorker();
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
+    const origin = request.headers.origin;
+    if (!isOriginAllowed(origin)) {
+        socket.destroy();
+        return;
+    }
+
     if (request.url && request.url.startsWith('/ws/')) {
         let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
         if (!serverName.includes('_')) serverName += '_1';
@@ -111,7 +124,7 @@ async function startServer() {
                 });
                 
                 port1.on('close', () => {
-                    if (ws.readyState === ws.OPEN) ws.close();
+                    ws.close();
                 });
                 
                 instance.worker.postMessage({ type: 'new_client', port: port2 }, [port2]);
@@ -121,6 +134,8 @@ async function startServer() {
         }
     }
   });
+
+  const activeInstances: Record<string, { id: string, name: string, playerLimit: number, emptySince?: number, playerCount?: number, worker: Worker, api: any }[]> = {};
   
   // Background Task Loop: Reaping empty instances (runs every 5 seconds)
   setInterval(() => {
