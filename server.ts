@@ -67,22 +67,11 @@ async function startServer() {
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
-    const origin = request.headers.origin;
-    if (!isOriginAllowed(origin)) {
-        socket.destroy();
-        return;
-    }
-
     if (request.url && request.url.startsWith('/ws/')) {
         let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
         if (!serverName.includes('_')) serverName += '_1';
         
         const mode = serverName.split('_')[0];
-
-        if (!VALID_MODES.has(mode)) {
-            socket.destroy();
-            return;
-        }
         
         let instances = activeInstances[mode];
         if (!instances) {
@@ -93,10 +82,6 @@ async function startServer() {
         let instance = instances.find(i => i.id === `/${serverName}`);
         if (!instance) {
             instance = instances[0];
-            if (!instance) {
-                socket.destroy();
-                return;
-            }
             serverName = instance.id.replace('/', '');
         }
 
@@ -104,9 +89,8 @@ async function startServer() {
             wss.handleUpgrade(request as any, socket, head, (ws) => {
                 const { port1, port2 } = new MessageChannel();
                 
-                ws.on('message', (data: Buffer, isBinary) => {
-                    const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-                    port1.postMessage({ type: 'message', data: ab, isBinary }, [ab]);
+                ws.on('message', (data, isBinary) => {
+                    port1.postMessage({ type: 'message', data, isBinary });
                 });
                 
                 ws.on('close', () => {
@@ -268,10 +252,6 @@ async function startServer() {
     let mode = (req.query.mode as string) || 'dungeondelver';
     if (mode.includes('_')) {
        mode = mode.split('_')[0];
-    }
-    if (!VALID_MODES.has(mode)) {
-       res.status(400).json({ error: 'Invalid game mode' });
-       return;
     }
     const serverId = getOrProvisionServer(mode);
     res.json({ serverId });
