@@ -131,6 +131,28 @@ export class CrazyGamesManager {
     try { (window as any).CrazyGames.SDK.game.hideInviteButton(); } catch(e) {}
   }
 
+  static requestBanner(options: { id: string, width: number, height: number, x: number, y: number }) {
+    if (this.initialized) {
+      try {
+        const cg = (window as any).CrazyGames.SDK;
+        if (cg && cg.banner && cg.banner.requestBanner) {
+          cg.banner.requestBanner(options);
+        }
+      } catch(e) {}
+    }
+  }
+
+  static clearAllBanners() {
+    if (this.initialized) {
+      try {
+        const cg = (window as any).CrazyGames.SDK;
+        if (cg && cg.banner && cg.banner.clearAllBanners) {
+          cg.banner.clearAllBanners();
+        }
+      } catch(e) {}
+    }
+  }
+
   static get isInstantMultiplayer(): boolean {
     try { return !!(window as any).CrazyGames.SDK.game.isInstantMultiplayer; } catch(e) { return false; }
   }
