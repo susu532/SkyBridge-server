@@ -950,6 +950,34 @@ const floats = getFloat32Array(buf);
       spawnMob(type, position.x, position.y, position.z, level, team);
     });
 
+    // Handle party and friend mechanics
+    socket.on("friendRequest", (targetName: string) => {
+      const target = Object.values(players).find((p: any) => p.name.toLowerCase() === targetName.toLowerCase() && p.id !== socket.id);
+      if (target) {
+        ioNamespace.to(target.id).emit("friendRequest", { sourceId: socket.id, sourceName: players[socket.id]?.name || "Player" });
+      } else {
+        socket.emit("chatMessage", { sender: "System", message: `§cPlayer ${targetName} not found online.` });
+      }
+    });
+
+    socket.on("friendAccept", (targetId: string) => {
+      ioNamespace.to(targetId).emit("friendAccept", { sourceId: socket.id, sourceName: players[socket.id]?.name || "Player" });
+    });
+
+    socket.on("partyInvite", (targetName: string) => {
+      const target = Object.values(players).find((p: any) => p.name.toLowerCase() === targetName.toLowerCase() && p.id !== socket.id);
+      if (target) {
+        ioNamespace.to(target.id).emit("partyInvite", { sourceId: socket.id, sourceName: players[socket.id]?.name || "Player", server: worldName });
+        socket.emit("chatMessage", { sender: "System", message: `§eParty invite sent to ${target.name}.` });
+      } else {
+        socket.emit("chatMessage", { sender: "System", message: `§cPlayer ${targetName} not found online.` });
+      }
+    });
+
+    socket.on("partyAccept", (targetId: string) => {
+      ioNamespace.to(targetId).emit("partyAccept", { sourceId: socket.id, sourceName: players[socket.id]?.name || "Player" });
+    });
+
     socket.on("disconnect", () => {
       console.log("Player disconnected:", socket.id);
       const p = players[socket.id];

@@ -135,6 +135,7 @@ class FakeSocket {
     this.id = id;
     this.ws = ws;
     this.volatile = this;
+    this.join(id);
     this.broadcast = {
       emit: (event: string, ...args: any[]) => {
         const packet = encodePacket(event, args);

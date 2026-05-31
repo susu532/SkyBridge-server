@@ -1,5 +1,6 @@
 import { create, StateCreator } from 'zustand';
 import { PlayerStats } from '../game/SkyBridgeManager';
+import { CrazyGamesManager } from '../game/CrazyGamesManager';
 
 export interface InventorySlice {
   inventoryVersion: number;
@@ -85,7 +86,16 @@ export interface KillCelebrationSlice {
   removeKillCelebration: (id: number) => void;
 }
 
-export type GameState = InventorySlice & ChatSlice & PopupSlice & CoreGameSlice & StatsSlice & EnvironmentSlice & KillCelebrationSlice;
+export interface SocialSlice {
+  friendRequests: { sourceId: string; sourceName: string }[];
+  partyInvites: { sourceId: string; sourceName: string; server: string }[];
+  addFriendRequest: (sourceId: string, sourceName: string) => void;
+  removeFriendRequest: (sourceId: string) => void;
+  addPartyInvite: (sourceId: string, sourceName: string, server: string) => void;
+  removePartyInvite: (sourceId: string) => void;
+}
+
+export type GameState = InventorySlice & ChatSlice & PopupSlice & CoreGameSlice & StatsSlice & EnvironmentSlice & KillCelebrationSlice & SocialSlice;
 
 let messageIdCounter = 0;
 
@@ -149,6 +159,7 @@ const createPopupSlice: StateCreator<GameState, [], [], PopupSlice> = (set) => (
   levelUpPopups: [],
   addLevelUpPopup: (skill, level) => {
     const id = messageIdCounter++;
+    CrazyGamesManager.happyTime();
     set((state) => ({ levelUpPopups: [...state.levelUpPopups, { id, skill, level }] }));
     setTimeout(() => {
       set((state) => ({ levelUpPopups: state.levelUpPopups.filter(p => p.id !== id) }));
@@ -213,6 +224,25 @@ const createEnvironmentSlice: StateCreator<GameState, [], [], EnvironmentSlice> 
   setIsUnderLava: (val) => set({ isUnderLava: val }),
 });
 
+const createSocialSlice: StateCreator<GameState, [], [], SocialSlice> = (set) => ({
+  friendRequests: [],
+  partyInvites: [],
+  addFriendRequest: (sourceId, sourceName) => set((state) => {
+    if (state.friendRequests.find(r => r.sourceId === sourceId)) return state;
+    return { friendRequests: [...state.friendRequests, { sourceId, sourceName }] };
+  }),
+  removeFriendRequest: (sourceId) => set((state) => ({
+    friendRequests: state.friendRequests.filter(r => r.sourceId !== sourceId)
+  })),
+  addPartyInvite: (sourceId, sourceName, server) => set((state) => {
+    if (state.partyInvites.find(r => r.sourceId === sourceId)) return state;
+    return { partyInvites: [...state.partyInvites, { sourceId, sourceName, server }] };
+  }),
+  removePartyInvite: (sourceId) => set((state) => ({
+    partyInvites: state.partyInvites.filter(r => r.sourceId !== sourceId)
+  })),
+});
+
 export const useGameStore = create<GameState>()((...a) => ({
   ...createInventorySlice(...a),
   ...createChatSlice(...a),
@@ -221,4 +251,5 @@ export const useGameStore = create<GameState>()((...a) => ({
   ...createStatsSlice(...a),
   ...createEnvironmentSlice(...a),
   ...createKillCelebrationSlice(...a),
+  ...createSocialSlice(...a),
 }));
