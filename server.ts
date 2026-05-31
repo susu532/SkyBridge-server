@@ -279,6 +279,18 @@ async function startServer() {
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
+    
+    // Keep-alive mechanism to prevent Render free tier from sleeping (sleeps after 15m of inactivity)
+    const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+    if (RENDER_EXTERNAL_URL) {
+      setInterval(() => {
+        fetch(`${RENDER_EXTERNAL_URL}/api/health`)
+          .then(res => console.log(`[Keep-Alive] Pinged ${RENDER_EXTERNAL_URL}/api/health - Status: ${res.status}`))
+          .catch(err => console.error(`[Keep-Alive] Error pinging server:`, err.message));
+      }, 14 * 60 * 1000); // Ping every 14 minutes
+      
+      console.log(`[Keep-Alive] Configured to ping ${RENDER_EXTERNAL_URL}/api/health every 14 minutes`);
+    }
   });
 }
 
