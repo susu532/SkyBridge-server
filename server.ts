@@ -86,18 +86,21 @@ async function startServer() {
         
         let instances = activeInstances[mode];
         if (!instances) {
-            getOrProvisionServer(mode);
+            activeInstances[mode] = [];
             instances = activeInstances[mode];
         }
         
         let instance = instances.find(i => i.id === `/${serverName}`);
         if (!instance) {
-            instance = instances[0];
+            // Client is attempting to join a specific room (e.g., via a CrazyGames invite or lobby)
+            getOrProvisionServer(mode, `/${serverName}`);
+            instance = instances.find(i => i.id === `/${serverName}`);
+            
+            // Fallback (shouldn't happen unless getOrProvision fails)
             if (!instance) {
-                socket.destroy();
-                return;
+                instance = instances[0];
+                serverName = instance.id.replace('/', '');
             }
-            serverName = instance.id.replace('/', '');
         }
 
         if (instance && instance.worker) {
@@ -171,14 +174,14 @@ async function startServer() {
     }
   }, 5000);
   
-  function getOrProvisionServer(baseName: string) {
+  function getOrProvisionServer(baseName: string, forceId?: string) {
     if (!activeInstances[baseName]) {
       activeInstances[baseName] = [];
     }
 
     const instances = activeInstances[baseName];
 
-    if (instances.length > 0) {
+    if (!forceId && instances.length > 0) {
        let bestInstance = instances.find(i => (i.playerCount || 0) < i.playerLimit);
        if (bestInstance) {
            return bestInstance.id;
@@ -186,7 +189,13 @@ async function startServer() {
     }
 
     // Need a new instance
-    const newId = `/${baseName}_${instances.length + 1}`;
+    let newId = forceId || `/${baseName}_${instances.length + 1}`;
+    
+    // Ensure uniqueness if forcing an ID that somehow got used (though highly unlikely, but safe to check)
+    let duplicateIndex = 1;
+    while(instances.find(i => i.id === newId)) {
+        newId = forceId ? `${forceId}_dup${duplicateIndex++}` : `/${baseName}_${instances.length + duplicateIndex++}`;
+    }
     
     // We launch GameServerWorker as a worker_thread to save memory compared to child processes
     const workerFile = path.join(process.cwd(), 'dist/src/server/GameServerWorker.cjs');
@@ -266,15 +275,25 @@ async function startServer() {
 
   app.get('/api/matchmake', (req, res) => {
     let mode = (req.query.mode as string) || 'dungeondelver';
+    let serverId = '';
+    
     if (mode.includes('_')) {
-       mode = mode.split('_')[0];
+       // if they requested a specific room, provision it if it doesn't exist
+       const baseName = mode.split('_')[0];
+       serverId = `/${mode}`;
+       let instances = activeInstances[baseName];
+       if (!instances) {
+            activeInstances[baseName] = [];
+            instances = activeInstances[baseName];
+       }
+       if (!instances.find(i => i.id === serverId)) {
+            getOrProvisionServer(baseName, serverId);
+       }
+    } else {
+       serverId = getOrProvisionServer(mode);
     }
-    if (!VALID_MODES.has(mode)) {
-       res.status(400).json({ error: 'Invalid game mode' });
-       return;
-    }
-    const serverId = getOrProvisionServer(mode);
-    res.json({ serverId });
+    
+    res.json({ serverId: serverId.replace('/', '') });
   });
 
   httpServer.listen(PORT, '0.0.0.0', () => {
