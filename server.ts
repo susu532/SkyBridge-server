@@ -150,7 +150,7 @@ async function startServer() {
         if (instance.playerCount === 0) {
           if (!instance.emptySince) {
             instance.emptySince = now;
-          } else if (now - instance.emptySince > 5 * 60 * 1000) {
+          } else if (now - instance.emptySince > 1 * 60 * 1000) {
             // Only reap if there is more than 1 instance to keep the pool warm
             if (instances.length > 1) {
               console.log(`Reaping idle instance: ${instance.id}`);
