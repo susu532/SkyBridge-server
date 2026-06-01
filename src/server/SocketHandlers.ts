@@ -81,13 +81,15 @@ ctx.ioNamespace.on("connection", (socket) => {
 
     // Handle player join
     socket.on("join", (data) => {
-      // If it's dungeon delver, remove a bot to make room for human
-      if (worldName.startsWith("dungeondelver")) {
-          const botIds = Object.keys(players).filter(id => players[id].isBot);
-          if (botIds.length > 0) {
-              const botToRemove = botIds[0];
-              ioNamespace.emit("playerLeft", botToRemove);
-              delete players[botToRemove];
+      if (worldName.startsWith("dungeondelver") || worldName.startsWith("skycastles")) {
+          const expectedMax = 30;
+          if (Object.keys(players).length >= expectedMax) {
+              const botIds = Object.keys(players).filter(id => players[id].isBot);
+              if (botIds.length > 0) {
+                  const botToRemove = botIds[0];
+                  ioNamespace.emit("playerLeft", botToRemove);
+                  delete players[botToRemove];
+              }
           }
       }
 

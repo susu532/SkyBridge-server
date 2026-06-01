@@ -264,34 +264,12 @@ async function startServer() {
     return newId;
   }
 
-  // Pre-warm the instances (Hub allows up to 100 or something, but let's stick to 50 for everything as requested)
-  getOrProvisionServer('hub');
-  // getOrProvisionServer('skybridge');
-  // getOrProvisionServer('skycastles');
-  // getOrProvisionServer('voidtrail');
+  // Pre-warm the instances
   getOrProvisionServer('dungeondelver');
-  // getOrProvisionServer('battleroyale');
-  // getOrProvisionServer('skyisland');
 
   app.get('/api/matchmake', (req, res) => {
-    let mode = (req.query.mode as string) || 'dungeondelver';
-    let serverId = '';
-    
-    if (mode.includes('_')) {
-       // if they requested a specific room, provision it if it doesn't exist
-       const baseName = mode.split('_')[0];
-       serverId = `/${mode}`;
-       let instances = activeInstances[baseName];
-       if (!instances) {
-            activeInstances[baseName] = [];
-            instances = activeInstances[baseName];
-       }
-       if (!instances.find(i => i.id === serverId)) {
-            getOrProvisionServer(baseName, serverId);
-       }
-    } else {
-       serverId = getOrProvisionServer(mode);
-    }
+    let mode = 'dungeondelver'; // Lock to dungeondelver
+    let serverId = getOrProvisionServer(mode);
     
     res.json({ serverId: serverId.replace('/', '') });
   });

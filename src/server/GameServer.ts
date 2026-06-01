@@ -133,6 +133,31 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo, genWorker
     npcs = (npcsData as any)[baseWorldName] || [];
   }
 
+  const BOT_NAMES = [
+    "AdvenBot", "BotSir", "SirBot", "RoboDelver", "DungeonMech",
+    "MechaKnight", "Bot_73", "AutoLooter", "IronClad", "Botus",
+    "CyberDelver", "MechWarrior", "BotO_Mato", "DroidDelver",
+    "Automaton", "GearHead", "Botbert", "RoboPaladin", "Botimus",
+    "MechMage", "Sir_Clanks", "Bot_101", "Droid_X", "RoboRogue",
+    "Bot_Ninja", "Gear_Bot", "Auto_Bot", "Bot_Rex", "Robo_King",
+    "Bot_Queen", "Droid_Lord", "Mech_God"
+  ];
+
+  const isLavaColumnAt = (x: number, y: number, z: number): boolean => {
+    const bx = Math.floor(x);
+    const by = Math.floor(y - 0.1);
+    const bz = Math.floor(z);
+    const blk = getBlockAt(bx, by, bz);
+    if (blk === BLOCK.LAVA) return true;
+    const checkDepthY = Math.max(-20, by - 40);
+    for (let checkY = by; checkY >= checkDepthY; checkY--) {
+      const tempBlk = getBlockAt(bx, checkY, bz);
+      if (tempBlk === BLOCK.LAVA) return true;
+      if (isSolidBlock(tempBlk)) break;
+    }
+    return false;
+  };
+
   const intervals: NodeJS.Timeout[] = [];
 
   const slowTick = () => {
@@ -170,6 +195,49 @@ export function createGameServer(io: any, db: any, mode: GameModeInfo, genWorker
 
     if (mode.onSlowTick) {
       mode.onSlowTick(ctx);
+    }
+
+    if ((worldName.startsWith("dungeondelver") || worldName.startsWith("skycastles")) && worldName.endsWith("_1")) {
+      const currentPlayers = Object.keys(players).length;
+      if (currentPlayers < 30) {
+        const hasTeams = mode.name.startsWith("/skycastles") || mode.name.startsWith("/skybridge");
+        for (let i = 0; i < 30 - currentPlayers; i++) {
+          const id = "bot_" + Math.random().toString(36).substring(2, 9);
+          const team = hasTeams ? (Math.random() < 0.5 ? "blue" : "red") : undefined;
+          
+          let respawnData = mode.getRespawnPosition(id, { team }, chunkManager, bakedBlocks);
+          let retry = 0;
+          while (isLavaColumnAt(respawnData.x, respawnData.y, respawnData.z) && retry < 50) {
+            respawnData = mode.getRespawnPosition(id, { team }, chunkManager, bakedBlocks);
+            retry++;
+          }
+          const initialPos = {
+            x: respawnData.x,
+            y: respawnData.y,
+            z: respawnData.z,
+          };
+
+          players[id] = {
+            id,
+            isBot: true,
+            position: initialPos,
+            velocity: { x: 0, y: 0, z: 0 },
+            rotation: respawnData.yaw !== undefined ? { x: 0, y: respawnData.yaw, z: 0 } : { x: 0, y: 0, z: 0 },
+            skinSeed: id,
+            name: BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)] + Math.floor(Math.random()*10),
+            health: 100,
+            maxHealth: 100,
+            defense: 0,
+            team: team,
+            isDead: false,
+            heldItem: 441, // WOODEN_SWORD
+            offHandItem: 0,
+            joinTime: Date.now(),
+            lastRespawnTime: Date.now()
+          };
+          ioNamespace.emit("playerJoined", players[id]);
+        }
+      }
     }
 
     tickMobDespawn(ctx);
@@ -534,31 +602,6 @@ const ctx: import("./GameContext").GameContext = {
   }
 
   if ((worldName.startsWith("dungeondelver") || worldName.startsWith("skycastles")) && worldName.endsWith("_1")) {
-    const BOT_NAMES = [
-      "AdvenBot", "BotSir", "SirBot", "RoboDelver", "DungeonMech",
-      "MechaKnight", "Bot_73", "AutoLooter", "IronClad", "Botus",
-      "CyberDelver", "MechWarrior", "BotO_Mato", "DroidDelver",
-      "Automaton", "GearHead", "Botbert", "RoboPaladin", "Botimus",
-      "MechMage", "Sir_Clanks", "Bot_101", "Droid_X", "RoboRogue",
-      "Bot_Ninja", "Gear_Bot", "Auto_Bot", "Bot_Rex", "Robo_King",
-      "Bot_Queen", "Droid_Lord", "Mech_God"
-    ];
-
-    const isLavaColumnAt = (x: number, y: number, z: number): boolean => {
-      const bx = Math.floor(x);
-      const by = Math.floor(y - 0.1);
-      const bz = Math.floor(z);
-      const blk = getBlockAt(bx, by, bz);
-      if (blk === BLOCK.LAVA) return true;
-      const checkDepthY = Math.max(-20, by - 40);
-      for (let checkY = by; checkY >= checkDepthY; checkY--) {
-        const tempBlk = getBlockAt(bx, checkY, bz);
-        if (tempBlk === BLOCK.LAVA) return true;
-        if (isSolidBlock(tempBlk)) break;
-      }
-      return false;
-    };
-
     const hasTeams = mode.name.startsWith("/skycastles") || mode.name.startsWith("/skybridge");
     for (let i = 0; i < 30; i++) {
       const id = "bot_" + Math.random().toString(36).substring(2, 9);
@@ -583,7 +626,7 @@ const ctx: import("./GameContext").GameContext = {
         velocity: { x: 0, y: 0, z: 0 },
         rotation: respawnData.yaw !== undefined ? { x: 0, y: respawnData.yaw, z: 0 } : { x: 0, y: 0, z: 0 },
         skinSeed: id,
-        name: BOT_NAMES[i % BOT_NAMES.length] + Math.floor(Math.random()*10),
+        name: BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)] + Math.floor(Math.random()*10),
         health: 100,
         maxHealth: 100,
         defense: 0,
