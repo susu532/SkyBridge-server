@@ -1,5 +1,6 @@
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 import { BLOCK } from './TextureAtlas';
+import { WORLD_Y_OFFSET } from './Chunk';
 
 // Seeded random for consistent terrain between client and server
 function createPRNG(seed: string) {
@@ -270,12 +271,12 @@ export function getTerrainData(wx: number, wz: number, isSkyCastles: boolean = f
 
 export function getTerrainHeight(wx_raw: number, wz_raw: number, isSkyCastles: boolean = false) {
   const data = getTerrainData(Math.floor(wx_raw), Math.floor(wz_raw), isSkyCastles, false, 800);
-  return data.height - 60; // Convert to world Y (WORLD_Y_OFFSET is -60)
+  return data.height + WORLD_Y_OFFSET; // Convert to world Y
 }
 
 export function getTerrainMinHeight(wx_raw: number, wz_raw: number, isSkyCastles: boolean = false) {
   const data = getTerrainData(Math.floor(wx_raw), Math.floor(wz_raw), isSkyCastles, false, 800);
-  return data.minHeight - 60; // Convert to world Y
+  return data.minHeight + WORLD_Y_OFFSET; // Convert to world Y
 }
 
 export function isNature(wx_raw: number, wz_raw: number, isSkyCastles: boolean = false) {
