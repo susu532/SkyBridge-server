@@ -183,6 +183,13 @@ async function startServer() {
 
     if (!forceId && instances.length > 0) {
        let bestInstance = instances.find(i => (i.playerCount || 0) < i.playerLimit);
+       
+       const MAX_INSTANCES = process.env.MAX_INSTANCES ? parseInt(process.env.MAX_INSTANCES) : 1;
+       if (!bestInstance && instances.length >= MAX_INSTANCES) {
+           // Fallback to least crowded instance if we hit max instance cap
+           bestInstance = instances.sort((a, b) => (a.playerCount || 0) - (b.playerCount || 0))[0];
+       }
+       
        if (bestInstance) {
            return bestInstance.id;
        }
