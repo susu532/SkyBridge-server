@@ -50,18 +50,33 @@ async function startServer() {
         console.log(`[Feedback Received]: ${message}`);
 
         // Send to Discord if webhook is configured
-        if (process.env.DISCORD_WEBHOOK_URL) {
+        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+        if (webhookUrl) {
+          if (!webhookUrl.includes('/api/webhooks/')) {
+            console.error('Invalid Discord Webhook URL. It must contain "/api/webhooks/". You provided a regular channel link.');
+            return res.json({ status: 'ok', warning: 'Invalid Discord Webhook URL configured in environment.' });
+          }
+
           try {
-            await fetch(process.env.DISCORD_WEBHOOK_URL, {
+            const discordRes = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 content: `**New Game Feedback:**\n> ${message.replace(/\n/g, '\n> ')}`
               })
             });
+            
+            if (!discordRes.ok) {
+              console.error('Discord Webhook returned an error:', discordRes.status, await discordRes.text());
+            } else {
+              console.log('Successfully forwarded feedback to Discord!');
+            }
           } catch (discordError) {
             console.error('Failed to send to Discord webhook:', discordError);
           }
+        } else {
+          console.log('No DISCORD_WEBHOOK_URL environment variable configured. Feedback saved locally only.');
+          return res.json({ status: 'ok', warning: 'DISCORD_WEBHOOK_URL not configured' });
         }
       }
       res.json({ status: 'ok' });
