@@ -40,6 +40,36 @@ async function startServer() {
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
+
+  app.post('/api/feedback', express.json(), async (req, res) => {
+    try {
+      const { message } = req.body;
+      if (message) {
+        // Log to an ephemeral local file as a backup
+        fs.appendFileSync(path.join(process.cwd(), 'feedback.txt'), `${new Date().toISOString()} - Feedback: ${message}\n`);
+        console.log(`[Feedback Received]: ${message}`);
+
+        // Send to Discord if webhook is configured
+        if (process.env.DISCORD_WEBHOOK_URL) {
+          try {
+            await fetch(process.env.DISCORD_WEBHOOK_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `**New Game Feedback:**\n> ${message.replace(/\n/g, '\n> ')}`
+              })
+            });
+          } catch (discordError) {
+            console.error('Failed to send to Discord webhook:', discordError);
+          }
+        }
+      }
+      res.json({ status: 'ok' });
+    } catch (e) {
+      console.error('Error saving feedback', e);
+      res.status(500).json({ error: 'Failed to save feedback' });
+    }
+  });
   
   const genWorkerFileNode = path.join(process.cwd(), 'dist/src/server/GenWorker.cjs');
   const fallbackTs = path.join(process.cwd(), 'src/server/GenWorker.ts');
