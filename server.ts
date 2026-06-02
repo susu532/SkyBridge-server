@@ -50,18 +50,33 @@ async function startServer() {
         console.log(`[Feedback Received]: ${message}`);
 
         // Send to Discord if webhook is configured
-        if (process.env.DISCORD_WEBHOOK_URL) {
+        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+        if (webhookUrl) {
+          if (!webhookUrl.includes('/api/webhooks/')) {
+            console.error('Invalid Discord Webhook URL. It must contain "/api/webhooks/". You provided a regular channel link.');
+            return res.json({ status: 'ok', warning: 'Invalid Discord Webhook URL configured in environment.' });
+          }
+
           try {
-            await fetch(process.env.DISCORD_WEBHOOK_URL, {
+            const discordRes = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 content: `**New Game Feedback:**\n> ${message.replace(/\n/g, '\n> ')}`
               })
             });
+            
+            if (!discordRes.ok) {
+              console.error('Discord Webhook returned an error:', discordRes.status, await discordRes.text());
+            } else {
+              console.log('Successfully forwarded feedback to Discord!');
+            }
           } catch (discordError) {
             console.error('Failed to send to Discord webhook:', discordError);
           }
+        } else {
+          console.log('No DISCORD_WEBHOOK_URL environment variable configured. Feedback saved locally only.');
+          return res.json({ status: 'ok', warning: 'DISCORD_WEBHOOK_URL not configured' });
         }
       }
       res.json({ status: 'ok' });
@@ -97,22 +112,11 @@ async function startServer() {
 
   // Handle WebSocket manual upgrade
   httpServer.on('upgrade', (request, socket, head) => {
-    const origin = request.headers.origin;
-    if (!isOriginAllowed(origin)) {
-        socket.destroy();
-        return;
-    }
-
     if (request.url && request.url.startsWith('/ws/')) {
         let serverName = request.url.replace('/ws/', '').split('?')[0]; // e.g. hub_1
         if (!serverName.includes('_')) serverName += '_1';
         
         const mode = serverName.split('_')[0];
-
-        if (!VALID_MODES.has(mode)) {
-            socket.destroy();
-            return;
-        }
         
         let instances = activeInstances[mode];
         if (!instances) {
@@ -137,9 +141,8 @@ async function startServer() {
             wss.handleUpgrade(request as any, socket, head, (ws) => {
                 const { port1, port2 } = new MessageChannel();
                 
-                ws.on('message', (data: Buffer, isBinary) => {
-                    const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-                    port1.postMessage({ type: 'message', data: ab, isBinary }, [ab]);
+                ws.on('message', (data, isBinary) => {
+                    port1.postMessage({ type: 'message', data, isBinary });
                 });
                 
                 ws.on('close', () => {
@@ -311,9 +314,24 @@ async function startServer() {
     res.json({ serverId: serverId.replace('/', '') });
   });
 
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-    
+    console.log(`Server running on http://localhost:${PORT}`);
+        
     // Keep-alive mechanism to prevent Render free tier from sleeping (sleeps after 15m of inactivity)
     const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
     if (RENDER_EXTERNAL_URL) {
