@@ -12,10 +12,7 @@ import Piscina from 'piscina';
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://starplex-io.vercel.app'];
 
 function isOriginAllowed(origin: string | undefined): boolean {
-    if (!origin) return true;
-    if (ALLOWED_ORIGIN.includes(origin)) return true;
-    if (origin === 'https://crazygames.com' || origin.endsWith('.crazygames.com')) return true;
-    return false;
+    return true; // Security removed: allow all origins
 }
 
 const VALID_MODES = new Set(['hub', 'skybridge', 'skycastles', 'voidtrail', 'dungeondelver', 'battleroyale','skyisland']);
@@ -52,11 +49,6 @@ async function startServer() {
         // Send to Discord if webhook is configured
         const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
         if (webhookUrl) {
-          if (!webhookUrl.includes('/api/webhooks/')) {
-            console.error('Invalid Discord Webhook URL. It must contain "/api/webhooks/". You provided a regular channel link.');
-            return res.json({ status: 'ok', warning: 'Invalid Discord Webhook URL configured in environment.' });
-          }
-
           try {
             const discordRes = await fetch(webhookUrl, {
               method: 'POST',
