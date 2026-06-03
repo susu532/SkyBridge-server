@@ -99,6 +99,7 @@ class SettingsManager {
     if (isMobileDevice) {
       this.settings.premiumShaders = false;
       this.settings.renderDistance = Math.min(this.settings.renderDistance, 3); // lowering default render distance for mobile
+      this.settings.sensitivity = 0.005; // 50 in UI
     }
 
     try {
@@ -113,6 +114,12 @@ class SettingsManager {
           if (isMobileDevice && !localStorage.getItem('v2_perf_reset_v3')) {
              this.settings.performanceMode = false;
              localStorage.setItem('v2_perf_reset_v3', 'true');
+             localStorage.setItem('game_settings_v2', JSON.stringify(this.settings));
+          }
+          
+          if (isMobileDevice && !localStorage.getItem('v2_mobile_sens_v1')) {
+             this.settings.sensitivity = 0.005;
+             localStorage.setItem('v2_mobile_sens_v1', 'true');
              localStorage.setItem('game_settings_v2', JSON.stringify(this.settings));
           }
         }
@@ -134,6 +141,14 @@ class SettingsManager {
                if (isMobileDevice && !localStorage.getItem('v2_perf_reset_v3_cg')) {
                   this.settings.performanceMode = false;
                   localStorage.setItem('v2_perf_reset_v3_cg', 'true');
+                  try {
+                     (window as any).CrazyGames.SDK.data.setItem('game_settings_v2', JSON.stringify(this.settings));
+                  } catch(e) {}
+               }
+               
+               if (isMobileDevice && !localStorage.getItem('v2_mobile_sens_v1_cg')) {
+                  this.settings.sensitivity = 0.005;
+                  localStorage.setItem('v2_mobile_sens_v1_cg', 'true');
                   try {
                      (window as any).CrazyGames.SDK.data.setItem('game_settings_v2', JSON.stringify(this.settings));
                   } catch(e) {}
